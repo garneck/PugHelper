@@ -128,6 +128,15 @@ function Content.FirstInstanceId()
     return nil
 end
 
+-- The instance's user-owned section copy if one exists (the fork-on-edit store),
+-- else nil. The single "is this instance customized?" predicate, shared by
+-- Effective, materialize, and HasCustom so the storage shape lives in one place.
+local function customSections(instanceId)
+    local c = Config.Custom()[instanceId]
+    if type(c) == "table" and type(c.sections) == "table" then return c.sections end
+    return nil
+end
+
 -- Build the effective instance to display/send. If the user has customized this
 -- instance, its sections are a fully user-owned copy (fork-on-edit, see the
 -- mutators below); otherwise they are a copy of the registered defaults. Either
@@ -138,11 +147,15 @@ function Content.Effective(instanceId)
     local def = Content.byId[instanceId]
     if type(def) ~= "table" then return nil end
 
-    local result = util.deepCopy(def)
-    local custom = Config.Custom()[instanceId]
-    if type(custom) == "table" and type(custom.sections) == "table" then
-        result.sections = util.deepCopy(custom.sections)
+    -- Copy the scalar instance fields, then the sections from whichever source
+    -- applies exactly once (copying def wholesale would deep-copy the default
+    -- sections only to discard them on the customized path).
+    local result = {}
+    for k, v in pairs(def) do
+        if k ~= "sections" then result[k] = util.deepCopy(v) end
     end
+    result.sections = util.deepCopy(customSections(instanceId) or def.sections)
+
     -- Normalize so the UI can always ipairs lines safely.
     for _, section in ipairs(util.asList(result.sections)) do
         section.lines = util.asList(section.lines)
@@ -159,14 +172,13 @@ end
 -- any title/index identity problems and lets sections be renamed, added, or
 -- removed freely (e.g. two separate "Trash" sections).
 local function materialize(instanceId)
-    local store = Config.Custom()
-    local c = store[instanceId]
-    if type(c) ~= "table" or type(c.sections) ~= "table" then
+    local sections = customSections(instanceId)
+    if not sections then
         local def = Content.byId[instanceId]
-        c = { sections = util.deepCopy(def and def.sections or {}) }
-        store[instanceId] = c
+        sections = util.deepCopy(def and def.sections or {})
+        Config.Custom()[instanceId] = { sections = sections }
     end
-    return c.sections
+    return sections
 end
 
 local function getSection(instanceId, sectionIndex)
@@ -239,8 +251,7 @@ end
 
 -- True if the instance has a user-owned section copy (controls the Reset button).
 function Content.HasCustom(instanceId)
-    local c = Config.Custom()[instanceId]
-    return type(c) == "table" and type(c.sections) == "table"
+    return customSections(instanceId) ~= nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -282,7 +293,6 @@ end
 -- callout line, so PugHelperDB.names doesn't accumulate leftovers as content
 -- changes. Case-insensitive; leaves custom-but-still-used tokens alone.
 function Content.PruneNames()
-    if not PugHelperDB or type(PugHelperDB.names) ~= "table" then return end
     local live = {}
     for _, role in ipairs(Content.Roles()) do
         if type(role) == "table" and role.key then live[tostring(role.key):upper()] = true end
@@ -299,9 +309,5 @@ function Content.PruneNames()
             end
         end
     end
-    for key in pairs(PugHelperDB.names) do
-        if type(key) ~= "string" or not live[key:upper()] then
-            PugHelperDB.names[key] = nil
-        end
-    end
+    Config.PruneNames(function(token) return live[token:upper()] end)
 end

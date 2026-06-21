@@ -97,6 +97,18 @@ function Config.SetName(token, value)
     Config.Names()[token] = value or ""
 end
 
+-- Drop every saved name whose token `keep(token)` returns falsy. The pruning
+-- POLICY (which tokens are still live) lives in Content; this owns only the
+-- saved-vars iteration so PugHelperDB stays Config's alone.
+function Config.PruneNames(keep)
+    local names = Config.Names()
+    for token in pairs(names) do
+        if type(token) ~= "string" or not keep(token) then
+            names[token] = nil
+        end
+    end
+end
+
 -- ---------------------------------------------------------------------------
 --  Window position
 -- ---------------------------------------------------------------------------

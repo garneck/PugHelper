@@ -34,10 +34,7 @@ local function BuildPopup()
     p:EnableMouse(true)
     p:SetFrameLevel(UI.frame:GetFrameLevel() + 200)
 
-    local bg = p:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(true)
-    bg:SetColorTexture(0.05, 0.05, 0.08, 0.98)
-
+    UI.Background(p, 0.05, 0.05, 0.08, 0.98)
     UI.AddBorder(p, 0.3, 0.3, 0.36, 1)
 
     local title = p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")

@@ -33,6 +33,16 @@ function UI.Tooltip(frame, lines)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
+-- Fill a frame with a flat BACKGROUND-layer color texture (the dark panel fill
+-- used by the window and overlays). Texture-based on purpose (no :SetBackdrop),
+-- companion to AddBorder.
+function UI.Background(frame, r, g, b, a)
+    local t = frame:CreateTexture(nil, "BACKGROUND")
+    t:SetAllPoints(true)
+    t:SetColorTexture(r, g, b, a)
+    return t
+end
+
 -- Add a 2px texture border (top/bottom/left/right) around a frame. Texture-based
 -- on purpose (no :SetBackdrop), matching the rest of the UI.
 function UI.AddBorder(frame, r, g, b, a)

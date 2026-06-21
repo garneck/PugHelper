@@ -72,6 +72,13 @@ local function ClearDrop()
     if dropIndicator then dropIndicator:Hide() end
 end
 
+-- Cancel an in-progress drop target: the cursor left a header/row into dead
+-- space, and releasing there must not reorder. Shared by the row and header
+-- OnLeave handlers.
+local function CancelDropTarget()
+    if UI.drag then UI.drag.toIndex = nil; ClearDrop() end
+end
+
 local function AcquireRow()
     for _, b in ipairs(rowPool) do
         if not b.inUse then b.inUse = true; b:Show(); return b end
@@ -144,7 +151,7 @@ local function AcquireRow()
     end)
     b:SetScript("OnLeave", function()
         GameTooltip:Hide()
-        if UI.drag then UI.drag.toIndex = nil; ClearDrop() end
+        CancelDropTarget()
     end)
 
     b.inUse = true
@@ -212,9 +219,7 @@ local function AcquireHeader()
     end)
     h:SetScript("OnLeave", function()
         GameTooltip:Hide()
-        -- Leaving a header during a drag without entering another drop target
-        -- cancels the drop (releasing over dead space won't reorder).
-        if UI.drag then UI.drag.toIndex = nil; ClearDrop() end
+        CancelDropTarget()
     end)
 
     h.inUse = true
@@ -439,10 +444,7 @@ function UI.BuildUI()
     mainFrame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); SavePoint() end)
     table.insert(UISpecialFrames, "PugHelperFrame")   -- closes with Escape
 
-    local bg = mainFrame:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(true)
-    bg:SetColorTexture(0.04, 0.04, 0.06, 0.96)
-
+    UI.Background(mainFrame, 0.04, 0.04, 0.06, 0.96)
     UI.AddBorder(mainFrame, 0.25, 0.25, 0.30, 1)
 
     local titleBg = mainFrame:CreateTexture(nil, "ARTWORK")

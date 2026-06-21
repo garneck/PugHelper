@@ -20,9 +20,7 @@ function UI.BuildNamesPanel(parent)
     panel:SetFrameLevel(parent:GetFrameLevel() + 100)
     panel:EnableMouse(true)
 
-    local bg = panel:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(true)
-    bg:SetColorTexture(0.05, 0.05, 0.07, 0.97)
+    UI.Background(panel, 0.05, 0.05, 0.07, 0.97)
 
     local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 14, -12)
@@ -63,13 +61,12 @@ function UI.BuildNamesPanel(parent)
         UIDropDownMenu_SetWidth(dd, 110)
         UIDropDownMenu_Initialize(dd, function()
             for _, name in ipairs(ns.api.GroupRoster()) do
-                local nm = name
                 local info = UIDropDownMenu_CreateInfo()
-                info.text    = nm
-                info.checked = (ns.Config.GetName(dd.token) == nm)
+                info.text    = name
+                info.checked = (ns.Config.GetName(dd.token) == name)
                 info.func    = function()
-                    ns.Config.SetName(dd.token, nm)
-                    UIDropDownMenu_SetText(dd, nm)
+                    ns.Config.SetName(dd.token, name)
+                    UIDropDownMenu_SetText(dd, name)
                 end
                 UIDropDownMenu_AddButton(info)
             end
