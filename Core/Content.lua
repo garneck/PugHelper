@@ -7,15 +7,19 @@
         ns:RegisterRoles{ ... }
         ns:RegisterInstance("raids", { name = "Karazhan", sections = {...} })
 
-    User edits live in PugHelperDB.custom (per instance) and are layered over
-    the defaults by Effective(), which never mutates the registered defaults.
-    This is what makes callouts customizable in-game and persistent across
-    /reload and addon updates. Reset = drop the instance's custom entry.
+    User edits live in PugHelperDB.custom (per instance) and are returned by
+    Effective() in place of the defaults, which it never mutates. This is what
+    makes callouts customizable in-game and persistent across /reload and addon
+    updates. Reset = drop the instance's custom entry.
 
-    Override storage shape (per instanceId), all keyed by section TITLE:
-        overrides[title][i] = "text"   -- replace default line i
-        added[title]        = { ... }  -- extra lines appended to the section
-        hidden[title][i]    = true     -- hide default line i
+    Customization is fork-on-edit: the first edit copies the instance's whole
+    section list into the store (see materialize), and that copy is then
+    authoritative. Storage shape (per instanceId):
+        PugHelperDB.custom[instanceId] = {
+            sections = { { title = "...", lines = { "...", ... } }, ... }
+        }
+    Sections and lines are addressed by display index (recomputed each render),
+    so section titles may repeat (e.g. two "Trash" sections).
 ---------------------------------------------------------------------------]]
 
 local _, ns = ...

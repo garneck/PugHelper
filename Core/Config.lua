@@ -119,8 +119,9 @@ function Config.SetSelectedInstance(id)
     if PugHelperDB then PugHelperDB.selectedInstance = id end
 end
 
--- The raw override table (instanceId -> {overrides,added,hidden}). Content.lua
--- gives this structure meaning; callers should prefer Content's mutators.
+-- The raw customization store (instanceId -> { sections = {...} }). Content.lua
+-- gives this structure meaning (fork-on-edit); callers should prefer Content's
+-- mutators rather than writing it directly.
 function Config.Custom()
     if not PugHelperDB then return {} end
     PugHelperDB.custom = PugHelperDB.custom or {}
