@@ -18,6 +18,10 @@ local DEFAULTS = {
 
 local CHANNELS = { "AUTO", "RAID", "RAID_WARNING", "PARTY", "SAY", "GUILD" }
 
+-- Max bytes per SendChatMessage. The hard client limit is 255; we leave headroom
+-- and split longer callout lines on word boundaries before sending (see SendLine).
+local CHAT_LIMIT = 240
+
 -- ===========================================================================
 --  Small helpers
 -- ===========================================================================
@@ -96,12 +100,22 @@ local function Substitute(text)
     end))
 end
 
+-- Resolve the configured channel to one that is valid for the CURRENT group state.
+-- AUTO picks Raid > Party > Say. A manual RAID/RAID_WARNING/PARTY override is quietly
+-- downgraded when you're not in such a group, so clicking a line can never error out
+-- with "You are not in a raid/party group".
 local function ResolveChannel()
     local ch = (PugHelperDB and PugHelperDB.channel) or "AUTO"
     if ch == "AUTO" then
         if InRaid() then return "RAID"
         elseif InGroup() then return "PARTY"
         else return "SAY" end
+    end
+    if (ch == "RAID" or ch == "RAID_WARNING") and not InRaid() then
+        return InGroup() and "PARTY" or "SAY"
+    end
+    if ch == "PARTY" and not InGroup() then
+        return "SAY"
     end
     return ch
 end
@@ -110,11 +124,10 @@ end
 local function SendLine(text)
     text = Substitute(text)
     local channel = ResolveChannel()
-    local LIMIT = 240
-    while #text > LIMIT do
-        local slice = text:sub(1, LIMIT)
+    while #text > CHAT_LIMIT do
+        local slice = text:sub(1, CHAT_LIMIT)
         local sp = slice:match(".*()%s")          -- index of last whitespace
-        local cut = (sp and sp - 1) or LIMIT
+        local cut = (sp and sp - 1) or CHAT_LIMIT
         SendChatMessage(text:sub(1, cut), channel)
         text = text:sub(cut + 1):gsub("^%s+", "")
     end
@@ -270,7 +283,9 @@ end
 --  Names panel
 -- ---------------------------------------------------------------------------
 local function BuildNamesPanel()
-    namesPanel = CreateFrame("Frame", "PugHelperNamesPanel", mainFrame)
+    -- Anonymous: nothing references this panel by global name (its dropdowns carry
+    -- their own names for the template), so we avoid polluting the global namespace.
+    namesPanel = CreateFrame("Frame", nil, mainFrame)
     namesPanel:SetPoint("TOPLEFT", 8, -58)
     namesPanel:SetPoint("BOTTOMRIGHT", -8, 8)
     -- Sit above the scroll content (which lives at a deeper frame level), so the
@@ -292,6 +307,9 @@ local function BuildNamesPanel()
     help:SetText("These names fill the {TOKENS} in your messages. Pick a party/raid member from each dropdown.")
     help:SetTextColor(0.8, 0.8, 0.8)
 
+    -- Fixed two-column grid sized to the ~16 default roles. A lot more roles than
+    -- that would overflow the panel vertically (there's no scroll here) — widen the
+    -- panel or add a third column if PugHelperRoles grows substantially.
     namesPanel.boxes = {}
     local roles = PugHelperRoles
     local perCol = math.ceil(#roles / 2)
@@ -398,7 +416,7 @@ local function BuildUI()
     mainFrame:RegisterForDrag("LeftButton")
     mainFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     mainFrame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); SavePoint() end)
-    tinsert(UISpecialFrames, "PugHelperFrame")   -- closes with Escape
+    table.insert(UISpecialFrames, "PugHelperFrame")   -- closes with Escape
 
     -- background + simple border (texture-based, no backdrop dependency)
     local bg = mainFrame:CreateTexture(nil, "BACKGROUND")
@@ -560,7 +578,13 @@ local function HandleSlash(msg)
             token = rest:match("^(%S+)$")
             value = ""
         end
-        if token then
+        if not token then
+            Print("Usage: /pug name TOKEN Yourname   (e.g. /pug name MT Bigtank)")
+        elseif not token:match("^%w+$") then
+            -- Substitution only matches {%w+}, so a non-alphanumeric token could be
+            -- stored but never filled in. Reject it up front instead.
+            Print("Token must be letters/numbers only (no spaces, dashes, or underscores): " .. token)
+        else
             token = token:upper()
             PugHelperDB.names[token] = value or ""
             if value and value ~= "" then
@@ -570,8 +594,6 @@ local function HandleSlash(msg)
             end
             RefreshNamesPanel()
             if mainFrame and mainFrame:IsShown() then RefreshContent() end
-        else
-            Print("Usage: /pug name TOKEN Yourname   (e.g. /pug name MT Bigtank)")
         end
     elseif cmd == "names" then
         Print("Current names:")

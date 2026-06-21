@@ -20,6 +20,8 @@
 ---------------------------------------------------------------------------]]
 
 -- Role tokens shown in the "Set Names" panel. key = the {TOKEN}; label = display name.
+-- IMPORTANT: keys must be letters/numbers only (no spaces, dashes, or underscores).
+-- Substitution matches {%w+}, so a key like "INT_1" would never get filled in.
 PugHelperRoles = {
     { key = "MT",   label = "Main Tank" },
     { key = "OT",   label = "Off Tank" },
