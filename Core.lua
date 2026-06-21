@@ -144,19 +144,27 @@ local function ResolveChannel()
     return ch
 end
 
--- Send a line, splitting on spaces if it exceeds the chat length limit.
-local function SendLine(text)
-    text = Substitute(text)
-    local channel = ResolveChannel()
-    while #text > CHAT_LIMIT do
-        local slice = text:sub(1, CHAT_LIMIT)
+-- Break text into a list of lines no longer than maxChars, splitting on spaces
+-- (a single over-long word is hard-cut). Shared by chat sending and the hover
+-- preview so both wrap text the same way.
+local function WrapText(text, maxChars)
+    local lines = {}
+    while #text > maxChars do
+        local slice = text:sub(1, maxChars)
         local sp = slice:match(".*()%s")          -- index of last whitespace
-        local cut = (sp and sp - 1) or CHAT_LIMIT
-        SendChatMessage(text:sub(1, cut), channel)
+        local cut = (sp and sp - 1) or maxChars   -- no space to break on: hard-cut
+        table.insert(lines, text:sub(1, cut))
         text = text:sub(cut + 1):gsub("^%s+", "")
     end
-    if #text > 0 then
-        SendChatMessage(text, channel)
+    if #text > 0 then table.insert(lines, text) end
+    return lines
+end
+
+-- Send a line, splitting on spaces if it exceeds the chat length limit.
+local function SendLine(text)
+    local channel = ResolveChannel()
+    for _, chunk in ipairs(WrapText(Substitute(text), CHAT_LIMIT)) do
+        SendChatMessage(chunk, channel)
     end
 end
 
@@ -256,6 +264,7 @@ local ROW_H        = 22        -- message row height
 local HEADER_H     = 20        -- section header height
 local SECTION_GAP  = 8         -- gap between sections
 local LABEL_CHARS  = 78        -- chars before a row label is truncated
+local PREVIEW_CHARS = 60       -- wrap width (chars) for the hover preview tooltip
 local BUTTON_H     = 22        -- toolbar / panel button height
 local TITLE_H      = 26        -- title bar height
 
@@ -305,7 +314,11 @@ local function AcquireRow()
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Click to send to " .. ResolveChannel(), 0.6, 0.8, 1)
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(Substitute(self.fullText), 1, 1, 1, true)
+        -- Show the whole line, wrapped to a fixed readable width across multiple
+        -- tooltip lines, so long callouts are never cut off at the screen edge.
+        for _, line in ipairs(WrapText(Substitute(self.fullText), PREVIEW_CHARS)) do
+            GameTooltip:AddLine(line, 1, 1, 1)
+        end
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
