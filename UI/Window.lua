@@ -142,7 +142,10 @@ local function AcquireRow()
             GameTooltip:Show()
         end
     end)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    b:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+        if UI.drag then UI.drag.toIndex = nil; ClearDrop() end
+    end)
 
     b.inUse = true
     table.insert(rowPool, b)
@@ -207,7 +210,12 @@ local function AcquireHeader()
         GameTooltip:AddLine("Drag to reorder  -  Click to rename  -  Right-click to delete", 1, 0.82, 0.4)
         GameTooltip:Show()
     end)
-    h:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    h:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+        -- Leaving a header during a drag without entering another drop target
+        -- cancels the drop (releasing over dead space won't reorder).
+        if UI.drag then UI.drag.toIndex = nil; ClearDrop() end
+    end)
 
     h.inUse = true
     table.insert(headerPool, h)
@@ -247,6 +255,9 @@ end
 function UI.Refresh()
     local sc = UI.scrollContent
     if not sc then return end
+    -- Any rebuild (edit, tab switch, reset, toggle) invalidates the editor
+    -- popup's target indices, so dismiss it rather than let Save misfire.
+    if UI.CloseEditPopup then UI.CloseEditPopup() end
     ReleasePool()
 
     local id   = ns.Config.SelectedInstance()

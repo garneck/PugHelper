@@ -84,6 +84,14 @@ function Content.AddInstance(categoryId, def)
     end
     def.category = categoryId
     def.id = categoryId .. ":" .. util.slug(def.name)
+    -- Two instances whose names slug to the same id would collide (last wins in
+    -- byId) and produce a dead duplicate tab. Skip the duplicate with a warning
+    -- rather than silently hide one instance's content.
+    if Content.byId[def.id] then
+        ns.Print("|cffff5555Data warning:|r another instance is already registered as '"
+            .. def.id .. "' ('" .. tostring(def.name) .. "') - skipping the duplicate. Give it a unique name.")
+        return
+    end
     table.insert(Content.defaults[categoryId], def)
     Content.byId[def.id] = def
     return def.id

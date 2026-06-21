@@ -85,6 +85,13 @@ local function OpenPopup(titleText, initialText, onSave)
     popup.edit:SetCursorPosition(#(initialText or ""))
 end
 
+-- Dismiss the editor popup. UI.Refresh calls this so a popup can never outlive
+-- the content it was opened against (e.g. after a tab switch or Reset tab),
+-- which would otherwise let Save write to the wrong instance/index.
+function UI.CloseEditPopup()
+    if popup then popup:Hide() end
+end
+
 -- ---------------------------------------------------------------------------
 --  Editor actions (called from message rows / section headers in edit mode).
 --  Sections and lines are addressed by their current display index.
