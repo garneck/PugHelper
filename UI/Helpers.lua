@@ -20,6 +20,31 @@ function UI.Button(parent, width, height, text, onClick)
     return b
 end
 
+-- A single-line text input with a dark inset background (plain CreateFrame, no
+-- template, per the WoW API rules). `onEnter` fires on Return; Escape clears
+-- focus; maxLetters nil/0 means no limit. Shared by the Set Names inputs and the
+-- window's tab search box.
+function UI.MakeInput(parent, width, maxLetters, onEnter)
+    local bg = parent:CreateTexture(nil, "BORDER")
+    bg:SetColorTexture(0, 0, 0, 0.5)
+
+    local edit = CreateFrame("EditBox", nil, parent)
+    edit:SetAutoFocus(false)
+    edit:SetFontObject("ChatFontNormal")
+    edit:SetMaxLetters(maxLetters or 0)
+    edit:SetTextInsets(5, 5, 2, 2)
+    edit:SetJustifyH("LEFT")
+    edit:SetSize(width, UI.BUTTON_H)
+    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    if onEnter then edit:SetScript("OnEnterPressed", onEnter) end
+
+    -- The texture frames the box; anchor it to the edit so callers place one.
+    bg:SetPoint("TOPLEFT", edit, "TOPLEFT", -2, 2)
+    bg:SetPoint("BOTTOMRIGHT", edit, "BOTTOMRIGHT", 2, -2)
+    edit.bg = bg
+    return edit
+end
+
 -- Wire a static right-anchored GameTooltip onto a frame. `lines` is a list of
 -- { text, r, g, b, wrap } entries (r/g/b/wrap optional per WoW's AddLine).
 function UI.Tooltip(frame, lines)

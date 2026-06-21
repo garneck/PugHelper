@@ -24,6 +24,8 @@ local DEFAULTS = {
     -- is a set of uppercased tokens suppressed on that tab, so any role -
     -- including a built-in - can be deleted from a raid without touching defaults.
     customRoles = { global = {}, byInstance = {}, hidden = {} },
+    -- Minimap launcher button: angle (degrees) around the ring + a hidden flag.
+    minimap = { angle = 220, hide = false },
 }
 
 -- Output channels in cycle order, defined in ONE place. `requires` is the group
@@ -156,4 +158,29 @@ function Config.CustomRoles()
     cr.hidden     = cr.hidden or {}
     PugHelperDB.customRoles = cr
     return cr
+end
+
+-- ---------------------------------------------------------------------------
+--  Minimap button (angle around the ring + show/hide)
+-- ---------------------------------------------------------------------------
+function Config.Minimap()
+    if not PugHelperDB then return { angle = 220, hide = false } end
+    PugHelperDB.minimap = PugHelperDB.minimap or { angle = 220, hide = false }
+    return PugHelperDB.minimap
+end
+
+function Config.MinimapAngle()
+    return Config.Minimap().angle or 220
+end
+
+function Config.SetMinimapAngle(angle)
+    Config.Minimap().angle = angle
+end
+
+function Config.MinimapHidden()
+    return Config.Minimap().hide and true or false
+end
+
+function Config.SetMinimapHidden(hide)
+    Config.Minimap().hide = hide and true or false
 end

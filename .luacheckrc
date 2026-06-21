@@ -30,6 +30,10 @@ read_globals = {
     "UISpecialFrames",
     "GameTooltip",
     "DEFAULT_CHAT_FRAME",
+    "Minimap",            -- minimap launcher button (UI/Minimap.lua)
+    "GetCursorPosition",  -- minimap button drag-to-reposition
+    -- Modifier keys
+    "IsControlKeyDown",   -- Ctrl-click duplicate gesture (Core/Api.lua)
     -- Dropdown menu helpers (UIDropDownMenuTemplate)
     "UIDropDownMenu_SetWidth",
     "UIDropDownMenu_Initialize",

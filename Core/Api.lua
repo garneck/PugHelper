@@ -78,3 +78,14 @@ function api.GroupRoster()
     table.sort(names)
     return names
 end
+
+-- ---------------------------------------------------------------------------
+--  Modifier keys
+-- ---------------------------------------------------------------------------
+-- True if a Control key is held. Used by the in-game editor's Ctrl-click
+-- "duplicate" gesture; falls back to false so the gesture simply never fires
+-- rather than erroring if the API is somehow absent.
+function api.ControlDown()
+    if api.has("IsControlKeyDown") then return IsControlKeyDown() end
+    return false
+end

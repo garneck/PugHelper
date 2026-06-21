@@ -21,6 +21,11 @@ loader:SetScript("OnEvent", function(self, event, name)
 
     ns.Content.Validate()
     ns.Content.PruneNames()
+
+    -- Build the minimap launcher now (not lazily with the window) so it's visible
+    -- at login. Guarded: a no-op if the build helper or Minimap global is absent.
+    if ns.UI.BuildMinimapButton then ns.UI.BuildMinimapButton() end
+
     ns.Print("loaded. Type /pug to open.")
 
     self:UnregisterEvent("ADDON_LOADED")

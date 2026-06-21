@@ -23,7 +23,7 @@ local popup
 local function BuildPopup()
     local p = CreateFrame("Frame", nil, UI.frame)
     p:SetFrameStrata("DIALOG")
-    p:SetSize(440, 200)
+    p:SetSize(440, 240)
     p:SetPoint("CENTER")
     p:EnableMouse(true)
     p:SetFrameLevel(UI.frame:GetFrameLevel() + 200)
@@ -35,11 +35,13 @@ local function BuildPopup()
     title:SetPoint("TOPLEFT", 14, -12)
     p.title = title
 
-    -- Edit box with its own dark inset background for readability.
+    -- Edit box with its own dark inset background for readability. The bottom
+    -- anchor is re-set per OpenPopup so the live preview can sit below it.
     local boxBg = p:CreateTexture(nil, "BORDER")
     boxBg:SetPoint("TOPLEFT", 12, -40)
-    boxBg:SetPoint("BOTTOMRIGHT", -12, 44)
+    boxBg:SetPoint("BOTTOMRIGHT", -12, 92)
     boxBg:SetColorTexture(0, 0, 0, 0.5)
+    p.boxBg = boxBg
 
     local edit = CreateFrame("EditBox", nil, p)
     edit:SetMultiLine(true)
@@ -52,6 +54,27 @@ local function BuildPopup()
     edit:SetPoint("BOTTOMRIGHT", boxBg, "BOTTOMRIGHT", -2, 2)
     edit:SetScript("OnEscapePressed", function() p:Hide() end)
     p.edit = edit
+
+    -- Live preview of the resolved callout (tokens filled from Set Names; any
+    -- still-unset {TOKEN} highlighted). Shown only for line edit/add.
+    local previewCap = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    previewCap:SetPoint("TOPLEFT", boxBg, "BOTTOMLEFT", 2, -6)
+    previewCap:SetText("Preview")
+    p.previewCap = previewCap
+
+    local previewText = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    previewText:SetPoint("TOPLEFT", previewCap, "BOTTOMLEFT", 0, -2)
+    previewText:SetPoint("RIGHT", p, "RIGHT", -14, 0)
+    previewText:SetJustifyH("LEFT")
+    previewText:SetWordWrap(true)
+    p.previewText = previewText
+
+    edit:SetScript("OnTextChanged", function(self)
+        if not p.showPreview then return end
+        local resolved = ns.Chat.Substitute(self:GetText())
+        resolved = resolved:gsub("{(%w+)}", "|cffff8800{%1}|r")
+        previewText:SetText(resolved)
+    end)
 
     local save = UI.Button(p, 90, UI.BUTTON_H, "Save", function()
         if p.onSave then p.onSave(edit:GetText()) end
@@ -66,12 +89,22 @@ local function BuildPopup()
     return p
 end
 
-local function OpenPopup(titleText, initialText, onSave)
+local function OpenPopup(titleText, initialText, onSave, showPreview)
     local text = initialText or ""
     popup = popup or BuildPopup()
     popup.title:SetText(titleText)
     popup.onSave = onSave
-    popup.edit:SetText(text)
+    popup.showPreview = showPreview and true or false
+    -- Make room for the preview only when it's shown (section title popups don't).
+    popup.boxBg:SetPoint("BOTTOMRIGHT", -12, showPreview and 92 or 44)
+    if showPreview then
+        popup.previewCap:Show()
+        popup.previewText:Show()
+    else
+        popup.previewCap:Hide()
+        popup.previewText:Hide()
+    end
+    popup.edit:SetText(text)   -- fires OnTextChanged, which refreshes the preview
     popup:Show()
     popup.edit:SetFocus()
     popup.edit:SetCursorPosition(#text)
@@ -92,14 +125,14 @@ function UI.OpenLineEditor(instanceId, sectionIndex, lineIndex, currentText)
     OpenPopup("Edit line", currentText, function(text)
         ns.Content.SetLine(instanceId, sectionIndex, lineIndex, text)
         UI.Refresh()
-    end)
+    end, true)
 end
 
 function UI.OpenAddEditor(instanceId, sectionIndex)
     OpenPopup("Add line", "", function(text)
         ns.Content.AddLine(instanceId, sectionIndex, text)
         UI.Refresh()
-    end)
+    end, true)
 end
 
 -- Right-click delete is confirmed first so a stray click can't drop a callout.
@@ -143,14 +176,20 @@ end
 -- ---------------------------------------------------------------------------
 function UI.ToggleEdit()
     UI.editMode = not UI.editMode
-    if UI.editBtn then UI.editBtn:SetText(UI.editMode and "Edit: ON" or "Edit: OFF") end
+    if UI.editBtn then
+        UI.editBtn:SetText(UI.editMode and "Edit: ON" or "Edit: OFF")
+        if UI.editMode then UI.editBtn:LockHighlight() else UI.editBtn:UnlockHighlight() end
+    end
+    if UI.editTag then
+        if UI.editMode then UI.editTag:Show() else UI.editTag:Hide() end
+    end
     if UI.resetBtn then
         if UI.editMode then UI.resetBtn:Show() else UI.resetBtn:Hide() end
     end
     if UI.hint then
         UI.hint:SetText(UI.editMode
-            and "Edit mode: drag a section title to reorder; click to edit, right-click to delete."
-            or  "Click a line to send it to chat.")
+            and "Edit mode: drag lines/sections to reorder; click to edit, right-click to delete, Ctrl-click to duplicate."
+            or  "Click a line to send it. {TOKENS} like {MT} fill in from Set Names.")
     end
     if popup then popup:Hide() end
     UI.Refresh()

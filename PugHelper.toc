@@ -19,6 +19,7 @@ UI\Helpers.lua
 UI\Window.lua
 UI\NamesPanel.lua
 UI\EditPanel.lua
+UI\Minimap.lua
 
 # Commands
 Core\Slash.lua

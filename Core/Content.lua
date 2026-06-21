@@ -385,6 +385,31 @@ function Content.DeleteLine(instanceId, sectionIndex, lineIndex)
     table.remove(section.lines, lineIndex)
 end
 
+-- Move the line at fromIndex within its section so it lands immediately before
+-- `insertBefore` (1..#lines+1; #lines+1 = "to the end"). Mirrors MoveSection.
+-- No-op if the move wouldn't change order.
+function Content.MoveLine(instanceId, sectionIndex, fromIndex, insertBefore)
+    local section = getSection(instanceId, sectionIndex)
+    if not section then return end
+    local lines = section.lines
+    local n = #lines
+    if fromIndex < 1 or fromIndex > n then return end
+    insertBefore = math.max(1, math.min(insertBefore or (n + 1), n + 1))
+    if insertBefore == fromIndex or insertBefore == fromIndex + 1 then return end
+    local item = table.remove(lines, fromIndex)
+    if insertBefore > fromIndex then insertBefore = insertBefore - 1 end
+    table.insert(lines, insertBefore, item)
+end
+
+-- Duplicate a line, inserting the copy right after the original.
+function Content.DuplicateLine(instanceId, sectionIndex, lineIndex)
+    local section = getSection(instanceId, sectionIndex)
+    if not section then return end
+    local line = section.lines[lineIndex]
+    if line == nil then return end
+    table.insert(section.lines, lineIndex + 1, line)
+end
+
 -- Sections (addressed by section index) --------------------------------------
 function Content.SetSectionTitle(instanceId, sectionIndex, title)
     title = util.oneLine(title)
@@ -416,6 +441,15 @@ function Content.MoveSection(instanceId, fromIndex, insertBefore)
     local item = table.remove(sections, fromIndex)
     if insertBefore > fromIndex then insertBefore = insertBefore - 1 end
     table.insert(sections, insertBefore, item)
+end
+
+-- Duplicate a section (title + all its lines), inserting the deep copy right
+-- after the original.
+function Content.DuplicateSection(instanceId, sectionIndex)
+    local sections = materialize(instanceId)
+    local section = sections[sectionIndex]
+    if type(section) ~= "table" then return end
+    table.insert(sections, sectionIndex + 1, util.deepCopy(section))
 end
 
 -- Drop all user customization for an instance (restore built-in defaults).

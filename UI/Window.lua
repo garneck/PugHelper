@@ -31,6 +31,7 @@ UI.editMode        = false
 UI.instanceButtons = {}
 UI.sectionHeaders  = {}         -- section index -> header frame (rebuilt each render)
 UI.drag            = nil        -- active section drag: { instanceId, fromIndex, toIndex }
+UI.lineDrag        = nil        -- active line drag: { instanceId, sectionIndex, fromIndex, toIndex }
 
 -- Object pools: reuse pooled frames rather than creating new ones per render.
 -- A render walks each pool with a forward cursor (reset in ReleasePool), so
@@ -82,12 +83,27 @@ local function CancelDropTarget()
     if UI.drag then UI.drag.toIndex = nil; ClearDrop() end
 end
 
+-- During a LINE drag, mark the hovered row as the drop slot (insert before it)
+-- and draw the indicator at that row's top edge. Mirrors SetDropTarget, but for
+-- lines within a single section.
+function UI.SetLineDropTarget(row, targetIndex)
+    if not UI.lineDrag then return end
+    UI.lineDrag.toIndex = targetIndex
+    local ind = DropIndicator()
+    ind:ClearAllPoints()
+    ind:SetPoint("BOTTOMLEFT", row, "TOPLEFT", 0, 0)
+    ind:SetPoint("BOTTOMRIGHT", row, "TOPRIGHT", 0, 0)
+    ind:SetHeight(2)
+    ind:Show()
+end
+
 local function AcquireRow()
     rowCursor = rowCursor + 1
     local b = rowPool[rowCursor]
     if b then b:Show(); return b end
     b = CreateFrame("Button", nil, UI.scrollContent)
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:RegisterForDrag("LeftButton")   -- drag a line to reorder it (edit mode only)
 
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints(true)
@@ -118,6 +134,9 @@ local function AcquireRow()
                 UI.OpenAddEditor(self.instanceId, self.sectionIndex)
             elseif button == "RightButton" then
                 UI.DeleteLine(self.instanceId, self.sectionIndex, self.lineIndex, self.fullText)
+            elseif self.lineIndex and ns.api.ControlDown() then
+                ns.Content.DuplicateLine(self.instanceId, self.sectionIndex, self.lineIndex)
+                UI.Refresh()
             else
                 UI.OpenLineEditor(self.instanceId, self.sectionIndex, self.lineIndex, self.fullText)
             end
@@ -125,7 +144,38 @@ local function AcquireRow()
             ns.Chat.SendLine(self.fullText)
         end
     end)
+    -- Drag a line to reorder it within its section (mirrors section-title drag).
+    -- A click without movement still fires OnClick, so edit/delete/duplicate work.
+    b:SetScript("OnDragStart", function(self)
+        if not UI.editMode or not self.lineIndex then return end
+        UI.lineDrag = { instanceId = self.instanceId, sectionIndex = self.sectionIndex, fromIndex = self.lineIndex }
+        self.label:SetAlpha(0.35)
+        GameTooltip:Hide()
+    end)
+    b:SetScript("OnDragStop", function(self)
+        local d = UI.lineDrag
+        UI.lineDrag = nil
+        self.label:SetAlpha(1)
+        ClearDrop()
+        if d and d.toIndex then
+            ns.Content.MoveLine(d.instanceId, d.sectionIndex, d.fromIndex, d.toIndex)
+            UI.Refresh()
+        end
+    end)
     b:SetScript("OnEnter", function(self)
+        -- While dragging a line, hovering a row / add-row in the SAME section
+        -- marks the drop slot.
+        if UI.lineDrag then
+            if UI.lineDrag.instanceId == self.instanceId
+                and UI.lineDrag.sectionIndex == self.sectionIndex then
+                if self.lineIndex then
+                    UI.SetLineDropTarget(self, self.lineIndex)
+                elseif self.addRow then
+                    UI.SetLineDropTarget(self, (self.lineCount or 0) + 1)
+                end
+            end
+            return
+        end
         -- While dragging a section, hovering any row targets that section's slot.
         if UI.drag then
             if UI.drag.instanceId == self.instanceId then
@@ -145,16 +195,21 @@ local function AcquireRow()
                 GameTooltip:AddLine("Click to add a new line", 0.6, 1, 0.6)
             else
                 GameTooltip:AddLine("Click to edit  -  Right-click to delete", 0.6, 0.8, 1)
+                GameTooltip:AddLine("Drag to reorder  -  Ctrl-click to duplicate", 0.6, 0.8, 1)
             end
             GameTooltip:Show()
         elseif self.fullText then
             GameTooltip:AddLine("Click to send to " .. ns.Chat.ResolveChannel(), 0.6, 0.8, 1)
+            if self.unresolved then
+                GameTooltip:AddLine("Unset: " .. self.unresolved .. " - pick names in Set Names.", 1, 0.6, 0.1, true)
+            end
             GameTooltip:Show()
         end
     end)
     b:SetScript("OnLeave", function()
         GameTooltip:Hide()
         CancelDropTarget()
+        if UI.lineDrag then UI.lineDrag.toIndex = nil; ClearDrop() end
     end)
 
     rowPool[rowCursor] = b
@@ -187,6 +242,9 @@ local function AcquireHeader()
         if not UI.editMode then return end
         if button == "RightButton" then
             UI.DeleteSection(self.instanceId, self.sectionIndex, self.titleText)
+        elseif ns.api.ControlDown() then
+            ns.Content.DuplicateSection(self.instanceId, self.sectionIndex)
+            UI.Refresh()
         else
             UI.OpenSectionEditor(self.instanceId, self.sectionIndex, self.titleText)
         end
@@ -217,6 +275,7 @@ local function AcquireHeader()
         if not UI.editMode then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Drag to reorder  -  Click to rename  -  Right-click to delete", 1, 0.82, 0.4)
+        GameTooltip:AddLine("Ctrl-click to duplicate this section", 1, 0.82, 0.4)
         GameTooltip:Show()
     end)
     h:SetScript("OnLeave", function()
@@ -252,6 +311,9 @@ local function PrepRow(id)
     local row = AcquireRow()
     row.addRow, row.addSection = nil, nil
     row.fullText, row.lineIndex, row.sectionIndex = nil, nil, nil
+    row.unresolved, row.lineCount = nil, nil
+    row.label:SetAlpha(1)
+    row:EnableMouse(true)
     row.instanceId = id
     return row
 end
@@ -303,21 +365,45 @@ function UI.Refresh()
         UI.sectionHeaders[si] = h
         y = y - HEADER_H
 
-        for li, line in ipairs(ns.util.asList(section.lines)) do
+        local lines = ns.util.asList(section.lines)
+        for li, line in ipairs(lines) do
             local row = PrepRow(id)
             row.fullText     = line
             row.sectionIndex = si
             row.lineIndex    = li
             row.bullet:Show()
-            row.bullet:SetVertexColor(0.5, 0.7, 1.0)
             row.label:SetTextColor(1, 1, 1)
-            y = y - LayoutRow(row, width, y, ns.Chat.Substitute(line))
+            -- After substitution, any remaining {TOKEN} is an unset name that
+            -- would be sent literally: flag the bullet amber and remember which.
+            local shown = ns.Chat.Substitute(line)
+            local unset
+            for tok in shown:gmatch("{(%w+)}") do
+                unset = unset and (unset .. ", {" .. tok .. "}") or ("{" .. tok .. "}")
+            end
+            row.unresolved = unset
+            if unset then
+                row.bullet:SetVertexColor(1, 0.6, 0.1)
+            else
+                row.bullet:SetVertexColor(0.5, 0.7, 1.0)
+            end
+            y = y - LayoutRow(row, width, y, shown)
+        end
+
+        -- Empty boss in normal mode: a dim, non-clickable nudge toward Edit (edit
+        -- mode shows the "+ Add line" row below instead).
+        if #lines == 0 and not UI.editMode then
+            local empty = PrepRow(id)
+            empty.bullet:Hide()
+            empty:EnableMouse(false)
+            empty.label:SetTextColor(0.5, 0.5, 0.5)
+            y = y - LayoutRow(empty, width, y, "(no callouts yet - turn on Edit to add some)")
         end
 
         if UI.editMode then
             local add = PrepRow(id)
             add.addRow       = true
             add.sectionIndex = si
+            add.lineCount    = #lines
             add.bullet:Hide()
             add.label:SetTextColor(0.5, 1.0, 0.5)
             y = y - LayoutRow(add, width, y, "+ Add line")
@@ -359,8 +445,19 @@ function UI.SelectInstance(instanceId)
     if sf and sf.SetVerticalScroll then sf:SetVerticalScroll(0) end
 end
 
+-- Show the configured channel and, when it differs, the channel a send would
+-- ACTUALLY land in right now (AUTO's pick, or a downgrade when a manual channel's
+-- group state isn't met). Kept current by the group/leader watcher in BuildUI.
 function UI.UpdateChannelButton()
-    if UI.channelBtn then UI.channelBtn:SetText("Channel: " .. ns.Config.Channel()) end
+    if not UI.channelBtn then return end
+    local cfg = ns.Config.Channel()
+    local res = ns.Chat.ResolveChannel()
+    local txt = "Channel: " .. cfg
+    if res ~= cfg then
+        local code = (cfg == "AUTO") and "ff88dd88" or "ffffaa33"
+        txt = txt .. " |c" .. code .. "> " .. res .. "|r"
+    end
+    UI.channelBtn:SetText(txt)
 end
 
 -- ---------------------------------------------------------------------------
@@ -386,19 +483,72 @@ end
 --  Build the left category list (one header per category, then its instances).
 --  Built into a scroll child (`parent`) so any number of tabs fits.
 -- ---------------------------------------------------------------------------
+-- Lay out the left list, showing only instances whose name contains `filter`
+-- (nil/"" = all) and only the category headers that still have a match. The
+-- buttons/headers are created once (BuildList); this just shows/positions them,
+-- so it's cheap to run on every keystroke. Selection highlight lives on the
+-- persistent buttons and is untouched here.
+function UI.LayoutList(filter)
+    if filter == "" then filter = nil end
+    local parent = UI.listContent
+    if not parent then return end
+    local y, first, anyShown = -4, true, false
+    for _, group in ipairs(UI.listGroups or {}) do
+        local shown = {}
+        for _, b in ipairs(group.buttons) do
+            if not filter or b.searchName:find(filter, 1, true) then
+                shown[#shown + 1] = b
+            else
+                b:Hide()
+            end
+        end
+        if #shown == 0 then
+            group.header:Hide()
+        else
+            if not first then y = y - 12 end   -- gap between categories
+            first = false
+            group.header:ClearAllPoints()
+            group.header:SetPoint("TOPLEFT", 4, y)
+            group.header:Show()
+            y = y - 14
+            for _, b in ipairs(shown) do
+                b:ClearAllPoints()
+                b:SetPoint("TOPLEFT", 4, y)
+                b:Show()
+                y = y - (ROW_H + 2)
+            end
+            anyShown = true
+        end
+    end
+    if not anyShown then
+        if not UI.listEmpty then
+            UI.listEmpty = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            UI.listEmpty:SetPoint("TOPLEFT", 6, -6)
+            UI.listEmpty:SetWidth(LEFT_W - 12)
+            UI.listEmpty:SetJustifyH("LEFT")
+            UI.listEmpty:SetWordWrap(true)
+        end
+        UI.listEmpty:SetText("(no matches)")
+        UI.listEmpty:Show()
+    elseif UI.listEmpty then
+        UI.listEmpty:Hide()
+    end
+    parent:SetHeight(math.max(-y + 6, 10))
+end
+
+-- Build every category header + instance button once into the scroll child,
+-- grouped so UI.LayoutList can filter them.
 local function BuildList(parent)
-    local y = -4
-    for ci, cat in ipairs(ns.Content.Categories()) do
-        if ci > 1 then y = y - 12 end          -- gap between categories
+    UI.listContent = parent
+    UI.listGroups  = {}
+    for _, cat in ipairs(ns.Content.Categories()) do
         local h = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        h:SetPoint("TOPLEFT", 4, y)
         h:SetText(string.upper(cat.label or cat.id))
-        y = y - 14
+        local group = { header = h, buttons = {} }
 
         for _, inst in ipairs(ns.Content.Instances(cat.id)) do
             local b = CreateFrame("Button", nil, parent)
             b:SetSize(LEFT_W - 8, ROW_H)
-            b:SetPoint("TOPLEFT", 4, y)
 
             local hl = b:CreateTexture(nil, "HIGHLIGHT")
             hl:SetAllPoints(true)
@@ -414,11 +564,13 @@ local function BuildList(parent)
             local id = inst.id
             b:SetScript("OnClick", function() UI.SelectInstance(id) end)
             b.instanceId = id
+            b.searchName = (inst.name or ""):lower()
             UI.instanceButtons[id] = b
-            y = y - (ROW_H + 2)
+            group.buttons[#group.buttons + 1] = b
         end
+        UI.listGroups[#UI.listGroups + 1] = group
     end
-    parent:SetHeight(math.max(-y + 6, 10))
+    UI.LayoutList(nil)
 end
 
 -- ---------------------------------------------------------------------------
@@ -455,17 +607,47 @@ function UI.BuildUI()
     close:SetScript("OnClick", function() mainFrame:Hide() end)
 
     -- toolbar: channel + names (+ edit controls from EditPanel)
-    local channelBtn = UI.Button(mainFrame, 150, UI.BUTTON_H, nil, function()
+    local channelBtn = UI.Button(mainFrame, 170, UI.BUTTON_H, nil, function()
         ns.Config.CycleChannel()
         UI.UpdateChannelButton()
     end)
     channelBtn:SetPoint("TOPLEFT", 10, -32)
-    UI.Tooltip(channelBtn, {
-        { "Where buttons send messages", 1, 1, 1 },
-        { "AUTO picks Raid > Party > Say. RAID_WARNING needs lead/assist.", 0.8, 0.8, 0.8, true },
-    })
+    -- Dynamic tooltip: rebuilt each hover so it names where a send lands right now.
+    channelBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Output channel", 1, 1, 1)
+        local cfg, res = ns.Config.Channel(), ns.Chat.ResolveChannel()
+        if res ~= cfg then
+            GameTooltip:AddLine("Set to " .. cfg .. ", sending to " .. res .. " right now.", 0.8, 0.8, 0.8, true)
+        else
+            GameTooltip:AddLine("Sending to " .. res .. " right now.", 0.8, 0.8, 0.8, true)
+        end
+        GameTooltip:AddLine("AUTO picks Raid > Party > Say. RAID_WARNING only delivers if you're raid lead/assist.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Click to change.", 0.6, 0.8, 1)
+        GameTooltip:Show()
+    end)
+    channelBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     UI.channelBtn = channelBtn
     UI.UpdateChannelButton()
+
+    -- Keep the resolved channel (and, while open, the Set Names roster dropdowns)
+    -- current as the group / leadership changes - same event pattern as Boot.lua.
+    local watcher = CreateFrame("Frame")
+    watcher:RegisterEvent("GROUP_ROSTER_UPDATE")
+    watcher:RegisterEvent("PARTY_LEADER_CHANGED")
+    watcher:SetScript("OnEvent", function()
+        UI.UpdateChannelButton()
+        if UI.RefreshNamesPanel then UI.RefreshNamesPanel() end
+    end)
+    UI.watcher = watcher
+
+    -- "Editing" badge (top-right), shown only in edit mode (toggled in EditPanel).
+    local editTag = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    editTag:SetPoint("TOPRIGHT", mainFrame, "TOPRIGHT", -34, -36)
+    editTag:SetText("\226\151\143 EDITING")
+    editTag:SetTextColor(1, 0.6, 0.1)
+    editTag:Hide()
+    UI.editTag = editTag
 
     local namesBtn = UI.Button(mainFrame, 110, UI.BUTTON_H, "Set Names", function() UI.ToggleNames() end)
     namesBtn:SetPoint("LEFT", channelBtn, "RIGHT", 8, 0)
@@ -473,9 +655,26 @@ function UI.BuildUI()
     -- Edit-mode + Reset controls (defined in UI/EditPanel.lua).
     if UI.BuildEditControls then UI.BuildEditControls(mainFrame, namesBtn) end
 
+    -- search box above the tab list (filters the raids/heroics list as you type)
+    local searchBox = UI.MakeInput(mainFrame, LEFT_W - 4, 0, nil)
+    searchBox:SetPoint("TOPLEFT", 12, -58)
+    local searchHint = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    searchHint:SetPoint("LEFT", 4, 0)
+    searchHint:SetText("Search...")
+    searchBox:SetScript("OnTextChanged", function(self)
+        local t = self:GetText()
+        if t ~= "" then searchHint:Hide() else searchHint:Show() end
+        UI.LayoutList(t:lower())
+    end)
+    searchBox:SetScript("OnEditFocusGained", function() searchHint:Hide() end)
+    searchBox:SetScript("OnEditFocusLost", function(self)
+        if self:GetText() == "" then searchHint:Show() end
+    end)
+    UI.searchBox = searchBox
+
     -- left tab list (scrollable, so any number of raids/heroics fits)
     local listScroll = CreateFrame("ScrollFrame", "PugHelperListScroll", mainFrame, "UIPanelScrollFrameTemplate")
-    listScroll:SetPoint("TOPLEFT", 10, -58)
+    listScroll:SetPoint("TOPLEFT", 10, -84)
     listScroll:SetPoint("BOTTOMLEFT", 10, 12)
     listScroll:SetWidth(LEFT_W)
     local listContent = CreateFrame("Frame", nil, listScroll)
@@ -494,7 +693,7 @@ function UI.BuildUI()
 
     local hint = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", contentHeader, "BOTTOMLEFT", 0, -2)
-    hint:SetText("Click a line to send it to chat.")
+    hint:SetText("Click a line to send it. {TOKENS} like {MT} fill in from Set Names.")
     UI.hint = hint
 
     local scroll = CreateFrame("ScrollFrame", "PugHelperScroll", mainFrame, "UIPanelScrollFrameTemplate")

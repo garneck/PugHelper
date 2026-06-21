@@ -53,28 +53,7 @@ local function InitNameDropdown(dropdown)
     UIDropDownMenu_AddButton(clearInfo)
 end
 
--- A single-line text input with a dark inset background, mirroring the editor's
--- EditBox setup (plain CreateFrame, no template). `onEnter` fires on Return.
-local function MakeInput(parent, width, maxLetters, onEnter)
-    local bg = parent:CreateTexture(nil, "BORDER")
-    bg:SetColorTexture(0, 0, 0, 0.5)
-
-    local edit = CreateFrame("EditBox", nil, parent)
-    edit:SetAutoFocus(false)
-    edit:SetFontObject("ChatFontNormal")
-    edit:SetMaxLetters(maxLetters)
-    edit:SetTextInsets(5, 5, 2, 2)
-    edit:SetJustifyH("LEFT")
-    edit:SetSize(width, UI.BUTTON_H)
-    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    if onEnter then edit:SetScript("OnEnterPressed", onEnter) end
-
-    -- The texture frames the box; anchor it to the edit so callers place one.
-    bg:SetPoint("TOPLEFT", edit, "TOPLEFT", -2, 2)
-    bg:SetPoint("BOTTOMRIGHT", edit, "BOTTOMRIGHT", 2, -2)
-    edit.bg = bg
-    return edit
-end
+-- (The single-line input builder lives in UI/Helpers.lua as UI.MakeInput.)
 
 -- ---------------------------------------------------------------------------
 --  Role rows (pooled by index, laid out into the scroll child each rebuild)
@@ -153,7 +132,15 @@ function UI.RebuildRoleRows()
         row.dd:ClearAllPoints()
         row.dd:SetPoint("TOPLEFT", ddX, -1)
         row.dd.token = role.key
-        UIDropDownMenu_SetText(row.dd, ns.Config.GetName(role.key) or "")
+        local assigned = ns.Config.GetName(role.key) or ""
+        UIDropDownMenu_SetText(row.dd, assigned)
+        -- Amber the role label while no name is assigned, so unset roles stand
+        -- out at a glance (the gold {TOKEN} keeps its own color either way).
+        if assigned == "" then
+            row.label:SetTextColor(1, 0.6, 0.1)
+        else
+            row.label:SetTextColor(1, 1, 1)
+        end
 
         -- Every role is deletable; the row carries how (see UI.DeleteRoleRow).
         row.remove.scope = role.scope
@@ -216,14 +203,14 @@ local function BuildAddRow(panel)
 
     local function submit() panel.doAddRole() end
 
-    local nameBox = MakeInput(panel, 150, 32, submit)
+    local nameBox = UI.MakeInput(panel, 150, 32, submit)
     nameBox:SetPoint("TOPLEFT", 52, -78)
 
     local tokenCap = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     tokenCap:SetPoint("TOPLEFT", 214, -82)
     tokenCap:SetText("Token")
 
-    local tokenBox = MakeInput(panel, 80, 16, submit)
+    local tokenBox = UI.MakeInput(panel, 80, 16, submit)
     tokenBox:SetPoint("TOPLEFT", 256, -78)
     -- Tab from the name to the token field for quick entry.
     nameBox:SetScript("OnTabPressed", function() tokenBox:SetFocus() end)

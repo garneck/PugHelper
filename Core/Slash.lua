@@ -57,6 +57,11 @@ function Slash.Handle(msg)
             ns.Print("Channels: " .. table.concat(ns.Config.CHANNEL_NAMES, ", "))
         end
 
+    elseif cmd == "minimap" then
+        ns.Config.SetMinimapHidden(not ns.Config.MinimapHidden())
+        if ns.UI.UpdateMinimapButton then ns.UI.UpdateMinimapButton() end
+        ns.Print(ns.Config.MinimapHidden() and "Minimap button hidden." or "Minimap button shown.")
+
     elseif cmd == "reset" then
         ns.Config.SetPoint(nil)
         ns.UI.RestorePoint()
@@ -69,6 +74,7 @@ function Slash.Handle(msg)
         ns.Print("  /pug name MT Name    - set a role name")
         ns.Print("  /pug names           - list role names")
         ns.Print("  /pug channel RAID    - set output channel")
+        ns.Print("  /pug minimap         - show/hide the minimap button")
         ns.Print("  /pug reset           - reset window position")
     end
 end
