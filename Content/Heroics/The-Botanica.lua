@@ -1,6 +1,5 @@
---[[ PUG Helper - Content/Heroics/The-Botanica.lua
-     Trash + boss titles pre-filled; line lists empty for your own callouts
-     (edit here or in-game via the "Edit" button). ]]
+-- PUG Helper content: The Botanica (Heroic). Sections are title strings (empty
+-- line lists); add callouts here or in-game via "Edit". See Raids/Karazhan.lua for format.
 
 local _, ns = ...
 
@@ -8,11 +7,11 @@ ns:RegisterInstance("heroics", {
     name = "The Botanica",
     note = "5-player Heroic | Tempest Keep",
     sections = {
-        { title = "Trash", lines = {} },
-        { title = "Commander Sarannis", lines = {} },
-        { title = "High Botanist Freywinn", lines = {} },
-        { title = "Thorngrin the Tender", lines = {} },
-        { title = "Laj", lines = {} },
-        { title = "Warp Splinter", lines = {} },
+        "Trash",
+        "Commander Sarannis",
+        "High Botanist Freywinn",
+        "Thorngrin the Tender",
+        "Laj",
+        "Warp Splinter",
     },
 })

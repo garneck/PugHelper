@@ -432,16 +432,7 @@ function UI.BuildUI()
     bg:SetAllPoints(true)
     bg:SetColorTexture(0.04, 0.04, 0.06, 0.96)
 
-    -- A 2px border edge; callers anchor it and set its own width/height.
-    local function Edge()
-        local t = mainFrame:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(0.25, 0.25, 0.30, 1)
-        return t
-    end
-    local top = Edge(); top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT"); top:SetHeight(2)
-    local bot = Edge(); bot:SetPoint("BOTTOMLEFT"); bot:SetPoint("BOTTOMRIGHT"); bot:SetHeight(2)
-    local lft = Edge(); lft:SetPoint("TOPLEFT"); lft:SetPoint("BOTTOMLEFT"); lft:SetWidth(2)
-    local rgt = Edge(); rgt:SetPoint("TOPRIGHT"); rgt:SetPoint("BOTTOMRIGHT"); rgt:SetWidth(2)
+    UI.AddBorder(mainFrame, 0.25, 0.25, 0.30, 1)
 
     local titleBg = mainFrame:CreateTexture(nil, "ARTWORK")
     titleBg:SetPoint("TOPLEFT", 2, -2)
@@ -458,28 +449,20 @@ function UI.BuildUI()
     close:SetScript("OnClick", function() mainFrame:Hide() end)
 
     -- toolbar: channel + names (+ edit controls from EditPanel)
-    local channelBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    channelBtn:SetSize(150, UI.BUTTON_H)
-    channelBtn:SetPoint("TOPLEFT", 10, -32)
-    channelBtn:SetScript("OnClick", function()
+    local channelBtn = UI.Button(mainFrame, 150, UI.BUTTON_H, nil, function()
         ns.Config.CycleChannel()
         UI.UpdateChannelButton()
     end)
-    channelBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Where buttons send messages", 1, 1, 1)
-        GameTooltip:AddLine("AUTO picks Raid > Party > Say. RAID_WARNING needs lead/assist.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    channelBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    channelBtn:SetPoint("TOPLEFT", 10, -32)
+    UI.Tooltip(channelBtn, {
+        { "Where buttons send messages", 1, 1, 1 },
+        { "AUTO picks Raid > Party > Say. RAID_WARNING needs lead/assist.", 0.8, 0.8, 0.8, true },
+    })
     UI.channelBtn = channelBtn
     UI.UpdateChannelButton()
 
-    local namesBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    namesBtn:SetSize(110, UI.BUTTON_H)
+    local namesBtn = UI.Button(mainFrame, 110, UI.BUTTON_H, "Set Names", function() UI.ToggleNames() end)
     namesBtn:SetPoint("LEFT", channelBtn, "RIGHT", 8, 0)
-    namesBtn:SetText("Set Names")
-    namesBtn:SetScript("OnClick", function() UI.ToggleNames() end)
 
     -- Edit-mode + Reset controls (defined in UI/EditPanel.lua).
     if UI.BuildEditControls then UI.BuildEditControls(mainFrame, namesBtn) end

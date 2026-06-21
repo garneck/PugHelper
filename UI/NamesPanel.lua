@@ -85,25 +85,19 @@ function UI.BuildNamesPanel(parent)
         panel.boxes[role.key] = dd
     end
 
-    local done = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    done:SetSize(90, UI.BUTTON_H)
-    done:SetPoint("BOTTOMRIGHT", -14, 12)
-    done:SetText("Done")
-    done:SetScript("OnClick", function()
+    local done = UI.Button(panel, 90, UI.BUTTON_H, "Done", function()
         panel:Hide()
         UI.Refresh()
     end)
+    done:SetPoint("BOTTOMRIGHT", -14, 12)
 
-    local clear = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    clear:SetSize(90, UI.BUTTON_H)
-    clear:SetPoint("RIGHT", done, "LEFT", -8, 0)
-    clear:SetText("Clear All")
-    clear:SetScript("OnClick", function()
+    local clear = UI.Button(panel, 90, UI.BUTTON_H, "Clear All", function()
         for key, dd in pairs(panel.boxes) do
             ns.Config.SetName(key, "")
             UIDropDownMenu_SetText(dd, "")
         end
     end)
+    clear:SetPoint("RIGHT", done, "LEFT", -8, 0)
 
     panel:Hide()
 end

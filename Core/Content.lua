@@ -47,11 +47,29 @@ function Content.SetRoles(list)
     Content.roles = util.asList(list)
 end
 
+-- Normalize a section list so each entry is { title = "...", lines = { ... } }.
+-- A plain string is shorthand for a section with that title and no lines yet, so
+-- content files can list bosses as bare strings; a table form is kept as-is with
+-- lines defaulted to {}.
+local function normalizeSections(sections)
+    local out = {}
+    for _, section in ipairs(util.asList(sections)) do
+        if type(section) == "string" then
+            table.insert(out, { title = section, lines = {} })
+        elseif type(section) == "table" then
+            section.lines = util.asList(section.lines)
+            table.insert(out, section)
+        end
+    end
+    return out
+end
+
 function Content.AddInstance(categoryId, def)
     if type(def) ~= "table" or not def.name then
         ns.Print("|cffff5555Data warning:|r RegisterInstance needs a table with a name - skipped.")
         return
     end
+    def.sections = normalizeSections(def.sections)
     -- Unknown category: keep the content rather than drop it, and surface a tab
     -- for it (label defaults to the id) at the end of the list.
     if not Content.defaults[categoryId] then

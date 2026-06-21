@@ -63,7 +63,7 @@ The addon is split into focused modules that share one **private namespace**, `n
 
 **Content — edit these for raids/callouts (no engine code):**
 - **`Content/Roles.lua`** — role tokens via `ns:RegisterRoles{ ... }` (`key`/`label` pairs).
-- **`Content/Raids/<Name>.lua`** — one file per instance via `ns:RegisterInstance("raids", { name, note, sections })`. To add a raid, copy `Karazhan.lua`, change the content, and add the file to `.toc`. `Content/Heroics/` is reserved for the (currently empty) **Heroics** category.
+- **`Content/Raids/<Name>.lua`** — one file per instance via `ns:RegisterInstance("raids", { name, note, sections })`. A `sections` entry can be a bare title string (`"Boss Name"` → a section with no lines yet) or the full `{ title, lines = { ... } }` table; `Content.AddInstance` normalizes both. To add a raid, copy `Karazhan.lua`, change the content, and add the file to `.toc`. The `Content/Heroics/` files register into the **Heroics** category the same way.
 
 **Engine — `Core/` (don't put content here):**
 - **`Namespace.lua`** (loads first) — creates the `ns` sub-tables and `ns.Print`.
@@ -75,9 +75,9 @@ The addon is split into focused modules that share one **private namespace**, `n
 - **`Slash.lua`** (`ns.Slash`) — `/pug` dispatch.
 - **`Boot.lua`** (loads last) — the `ADDON_LOADED` loader; wires the init order.
 
-**UI — `UI/` (`ns.UI`):** `Window.lua` (main frame, category list, object-pooled message pane, `Refresh`), `NamesPanel.lua` (Set Names overlay), `EditPanel.lua` (in-game callout editor).
+**UI — `UI/` (`ns.UI`):** `Helpers.lua` (shared builders: `UI.Button`, `UI.Tooltip`, `UI.AddBorder` — use these instead of re-rolling CreateFrame/tooltip/border boilerplate), `Window.lua` (main frame, category list, object-pooled message pane, `Refresh`), `NamesPanel.lua` (Set Names overlay), `EditPanel.lua` (in-game callout editor).
 
-**Load order in `.toc` matters** (dependencies flow down): Namespace → Util → Api → Config → Content → Chat → UI/* → Slash → Content data files → Boot. Data files must load **after** `Core/Content.lua` (which defines `ns:RegisterInstance`); `Boot.lua` is always last.
+**Load order in `.toc` matters** (dependencies flow down): Namespace → Util → Api → Config → Content → Chat → UI/Helpers → UI/* → Slash → Content data files → Boot. Data files must load **after** `Core/Content.lua` (which defines `ns:RegisterInstance`); `Boot.lua` is always last.
 
 ## Key mechanics to preserve
 

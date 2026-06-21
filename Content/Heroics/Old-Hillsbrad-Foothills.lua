@@ -1,6 +1,5 @@
---[[ PUG Helper - Content/Heroics/Old-Hillsbrad-Foothills.lua
-     Trash + boss titles pre-filled; line lists empty for your own callouts
-     (edit here or in-game via the "Edit" button). ]]
+-- PUG Helper content: Old Hillsbrad Foothills (Heroic). Sections are title strings (empty
+-- line lists); add callouts here or in-game via "Edit". See Raids/Karazhan.lua for format.
 
 local _, ns = ...
 
@@ -8,9 +7,9 @@ ns:RegisterInstance("heroics", {
     name = "Old Hillsbrad Foothills",
     note = "5-player Heroic | Caverns of Time",
     sections = {
-        { title = "Trash", lines = {} },
-        { title = "Lieutenant Drake", lines = {} },
-        { title = "Captain Skarloc", lines = {} },
-        { title = "Epoch Hunter", lines = {} },
+        "Trash",
+        "Lieutenant Drake",
+        "Captain Skarloc",
+        "Epoch Hunter",
     },
 })

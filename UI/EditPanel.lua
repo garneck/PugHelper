@@ -38,15 +38,7 @@ local function BuildPopup()
     bg:SetAllPoints(true)
     bg:SetColorTexture(0.05, 0.05, 0.08, 0.98)
 
-    local function Edge()
-        local t = p:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(0.3, 0.3, 0.36, 1)
-        return t
-    end
-    local top = Edge(); top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT"); top:SetHeight(2)
-    local bot = Edge(); bot:SetPoint("BOTTOMLEFT"); bot:SetPoint("BOTTOMRIGHT"); bot:SetHeight(2)
-    local lft = Edge(); lft:SetPoint("TOPLEFT"); lft:SetPoint("BOTTOMLEFT"); lft:SetWidth(2)
-    local rgt = Edge(); rgt:SetPoint("TOPRIGHT"); rgt:SetPoint("BOTTOMRIGHT"); rgt:SetWidth(2)
+    UI.AddBorder(p, 0.3, 0.3, 0.36, 1)
 
     local title = p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 14, -12)
@@ -70,20 +62,14 @@ local function BuildPopup()
     edit:SetScript("OnEscapePressed", function() p:Hide() end)
     p.edit = edit
 
-    local save = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-    save:SetSize(90, UI.BUTTON_H)
-    save:SetPoint("BOTTOMRIGHT", -14, 12)
-    save:SetText("Save")
-    save:SetScript("OnClick", function()
+    local save = UI.Button(p, 90, UI.BUTTON_H, "Save", function()
         if p.onSave then p.onSave(edit:GetText()) end
         p:Hide()
     end)
+    save:SetPoint("BOTTOMRIGHT", -14, 12)
 
-    local cancel = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-    cancel:SetSize(90, UI.BUTTON_H)
+    local cancel = UI.Button(p, 90, UI.BUTTON_H, "Cancel", function() p:Hide() end)
     cancel:SetPoint("RIGHT", save, "LEFT", -8, 0)
-    cancel:SetText("Cancel")
-    cancel:SetScript("OnClick", function() p:Hide() end)
 
     p:Hide()
     return p
@@ -160,38 +146,26 @@ function UI.ToggleEdit()
 end
 
 function UI.BuildEditControls(parent, after)
-    local editBtn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    editBtn:SetSize(90, UI.BUTTON_H)
+    local editBtn = UI.Button(parent, 90, UI.BUTTON_H, "Edit: OFF", UI.ToggleEdit)
     editBtn:SetPoint("LEFT", after, "RIGHT", 8, 0)
-    editBtn:SetText("Edit: OFF")
-    editBtn:SetScript("OnClick", UI.ToggleEdit)
-    editBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Customize callouts", 1, 1, 1)
-        GameTooltip:AddLine("Edit/add/delete lines and rename, add, or remove sections. Changes are saved per tab.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    editBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.Tooltip(editBtn, {
+        { "Customize callouts", 1, 1, 1 },
+        { "Edit/add/delete lines and rename, add, or remove sections. Changes are saved per tab.", 0.8, 0.8, 0.8, true },
+    })
     UI.editBtn = editBtn
 
-    local resetBtn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    resetBtn:SetSize(110, UI.BUTTON_H)
-    resetBtn:SetPoint("LEFT", editBtn, "RIGHT", 8, 0)
-    resetBtn:SetText("Reset tab")
-    resetBtn:SetScript("OnClick", function()
+    local resetBtn = UI.Button(parent, 110, UI.BUTTON_H, "Reset tab", function()
         local id = ns.Config.SelectedInstance()
         if id then
             ns.Content.ResetInstance(id)
             UI.Refresh()
         end
     end)
-    resetBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Restore this tab's built-in callouts", 1, 1, 1)
-        GameTooltip:AddLine("Removes all your edits, additions, and deletions for the selected tab.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    resetBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    resetBtn:SetPoint("LEFT", editBtn, "RIGHT", 8, 0)
+    UI.Tooltip(resetBtn, {
+        { "Restore this tab's built-in callouts", 1, 1, 1 },
+        { "Removes all your edits, additions, and deletions for the selected tab.", 0.8, 0.8, 0.8, true },
+    })
     resetBtn:Hide()
     UI.resetBtn = resetBtn
 

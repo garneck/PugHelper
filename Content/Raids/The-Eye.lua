@@ -1,6 +1,5 @@
---[[ PUG Helper - Content/Raids/The-Eye.lua
-     Section titles (Trash + bosses) are pre-filled; line lists are empty so you
-     can add your own callouts here or in-game via the "Edit" button. ]]
+-- PUG Helper content: The Eye (Tempest Keep). Sections are title strings (empty line lists);
+-- add callouts here or in-game via the "Edit" button. See Karazhan.lua for the format.
 
 local _, ns = ...
 
@@ -8,10 +7,10 @@ ns:RegisterInstance("raids", {
     name = "The Eye (Tempest Keep)",
     note = "25-player | Phase 2",
     sections = {
-        { title = "Trash", lines = {} },
-        { title = "Al'ar", lines = {} },
-        { title = "Void Reaver", lines = {} },
-        { title = "High Astromancer Solarian", lines = {} },
-        { title = "Kael'thas Sunstrider", lines = {} },
+        "Trash",
+        "Al'ar",
+        "Void Reaver",
+        "High Astromancer Solarian",
+        "Kael'thas Sunstrider",
     },
 })
