@@ -45,6 +45,14 @@ function util.trim(s)
     return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+-- Collapse embedded newlines/returns/tabs to a single space and trim the ends,
+-- so a value stays one line. Used by the callout text/section-title mutators in
+-- Content so a saved callout is always a single chat line regardless of caller.
+function util.oneLine(s)
+    s = tostring(s or ""):gsub("[\r\n\t]+", " ")
+    return util.trim(s)
+end
+
 -- Derive a stable, lowercase id from a display name: alphanumeric runs kept,
 -- everything else collapsed to single dashes, ends trimmed.
 --   "Karazhan"               -> "karazhan"

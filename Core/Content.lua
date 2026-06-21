@@ -367,12 +367,12 @@ function Content.SetLine(instanceId, sectionIndex, lineIndex, text)
     local section = getSection(instanceId, sectionIndex)
     if not section then return end
     if section.lines[lineIndex] ~= nil then
-        section.lines[lineIndex] = util.trim(text)
+        section.lines[lineIndex] = util.oneLine(text)
     end
 end
 
 function Content.AddLine(instanceId, sectionIndex, text)
-    text = util.trim(text)
+    text = util.oneLine(text)
     if text == "" then return end
     local section = getSection(instanceId, sectionIndex)
     if not section then return end
@@ -387,14 +387,14 @@ end
 
 -- Sections (addressed by section index) --------------------------------------
 function Content.SetSectionTitle(instanceId, sectionIndex, title)
-    title = util.trim(title)
+    title = util.oneLine(title)
     if title == "" then return end
     local section = getSection(instanceId, sectionIndex)
     if section then section.title = title end
 end
 
 function Content.AddSection(instanceId, title)
-    title = util.trim(title)
+    title = util.oneLine(title)
     if title == "" then return end
     table.insert(materialize(instanceId), { title = title, lines = {} })
 end
@@ -468,18 +468,17 @@ end
 -- changes. Case-insensitive; leaves custom-but-still-used tokens alone.
 function Content.PruneNames()
     local live = {}
-    -- Defined roles keep their name even before any callout references them:
-    -- built-ins, global custom roles, and every instance's custom roles.
-    for _, role in ipairs(Content.ValidRoles()) do
-        live[tostring(role.key):upper()] = true
-    end
-    for _, role in ipairs(Content.GlobalRoles()) do
-        live[tostring(role.key):upper()] = true
-    end
-    for _, list in pairs(Config.CustomRoles().byInstance) do
-        for _, role in ipairs(validRoleList(list)) do
+    local function markLive(roles)
+        for _, role in ipairs(roles) do
             live[tostring(role.key):upper()] = true
         end
+    end
+    -- Defined roles keep their name even before any callout references them:
+    -- built-ins, global custom roles, and every instance's custom roles.
+    markLive(Content.ValidRoles())
+    markLive(Content.GlobalRoles())
+    for _, list in pairs(Config.CustomRoles().byInstance) do
+        markLive(validRoleList(list))
     end
     for _, cat in ipairs(Content.categories) do
         for _, inst in ipairs(Content.Instances(cat.id)) do

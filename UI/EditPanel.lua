@@ -15,12 +15,6 @@
 local _, ns = ...
 local UI = ns.UI
 
--- Strip newlines/tabs so a callout always stays a single chat line.
-local function sanitize(text)
-    text = tostring(text or ""):gsub("[\r\n\t]+", " ")
-    return ns.util.trim(text)
-end
-
 -- ---------------------------------------------------------------------------
 --  Shared edit popup (built once, reused for edit + add)
 -- ---------------------------------------------------------------------------
@@ -96,14 +90,14 @@ end
 -- ---------------------------------------------------------------------------
 function UI.OpenLineEditor(instanceId, sectionIndex, lineIndex, currentText)
     OpenPopup("Edit line", currentText, function(text)
-        ns.Content.SetLine(instanceId, sectionIndex, lineIndex, sanitize(text))
+        ns.Content.SetLine(instanceId, sectionIndex, lineIndex, text)
         UI.Refresh()
     end)
 end
 
 function UI.OpenAddEditor(instanceId, sectionIndex)
     OpenPopup("Add line", "", function(text)
-        ns.Content.AddLine(instanceId, sectionIndex, sanitize(text))
+        ns.Content.AddLine(instanceId, sectionIndex, text)
         UI.Refresh()
     end)
 end
@@ -123,14 +117,14 @@ end
 
 function UI.OpenSectionEditor(instanceId, sectionIndex, currentTitle)
     OpenPopup("Rename section", currentTitle, function(text)
-        ns.Content.SetSectionTitle(instanceId, sectionIndex, sanitize(text))
+        ns.Content.SetSectionTitle(instanceId, sectionIndex, text)
         UI.Refresh()
     end)
 end
 
 function UI.OpenAddSectionEditor(instanceId)
     OpenPopup("New section title", "", function(text)
-        ns.Content.AddSection(instanceId, sanitize(text))
+        ns.Content.AddSection(instanceId, text)
         UI.Refresh()
     end)
 end
