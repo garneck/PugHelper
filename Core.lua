@@ -172,15 +172,6 @@ local function Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff66bbffPUG Helper|r: " .. tostring(msg))
 end
 
--- Shorten a (substituted) line for display on a button.
-local function Truncate(text, maxChars)
-    text = Substitute(text)
-    if #text > maxChars then
-        return text:sub(1, maxChars - 1) .. "..."
-    end
-    return text
-end
-
 -- One-time sanity check of the user-edited content in Data.lua. Prints friendly,
 -- actionable warnings instead of letting a typo throw a cryptic Lua error later.
 -- It only reports problems; the UI code below also degrades gracefully (asList).
@@ -260,11 +251,11 @@ local FRAME_W      = 660       -- main window size
 local FRAME_H      = 480
 local LEFT_W       = 158       -- raid-list column width
 local CONTENT_X    = 178       -- left edge of the right-hand message pane
-local ROW_H        = 22        -- message row height
+local ROW_H        = 22        -- minimum message row height (a single line)
+local ROW_INSET    = 22        -- bullet + padding to the left of the wrapped label
+local ROW_VPAD     = 8         -- vertical padding added to the wrapped text height
 local HEADER_H     = 20        -- section header height
 local SECTION_GAP  = 8         -- gap between sections
-local LABEL_CHARS  = 78        -- chars before a row label is truncated
-local PREVIEW_CHARS = 60       -- wrap width (chars) for the hover preview tooltip
 local BUTTON_H     = 22        -- toolbar / panel button height
 local TITLE_H      = 26        -- title bar height
 
@@ -284,7 +275,6 @@ local function AcquireRow()
         if not b.inUse then b.inUse = true; b:Show(); return b end
     end
     local b = CreateFrame("Button", nil, scrollContent)
-    b:SetHeight(ROW_H)
 
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints(true)
@@ -296,14 +286,16 @@ local function AcquireRow()
     bullet:SetTexture("Interface\\Buttons\\UI-RadioButton")
     bullet:SetTexCoord(0, 0.25, 0, 1)
     bullet:SetSize(12, 12)
-    bullet:SetPoint("LEFT", 2, 0)
+    bullet:SetPoint("TOPLEFT", 2, -4)
     bullet:SetVertexColor(0.5, 0.7, 1.0)
 
+    -- Full callout text, wrapped over as many lines as needed (no truncation).
+    -- RefreshContent sets the label width and sizes the row to the wrapped height.
     local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    fs:SetPoint("LEFT", bullet, "RIGHT", 4, 0)
-    fs:SetPoint("RIGHT", -4, 0)
+    fs:SetPoint("TOPLEFT", bullet, "TOPRIGHT", 4, 0)
     fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
+    fs:SetJustifyV("TOP")
+    fs:SetWordWrap(true)
     b.label = fs
 
     b:SetScript("OnClick", function(self)
@@ -311,14 +303,10 @@ local function AcquireRow()
     end)
     b:SetScript("OnEnter", function(self)
         if not self.fullText then return end
+        -- The full line is already shown in the list, so the tooltip just notes
+        -- where a click will send it.
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Click to send to " .. ResolveChannel(), 0.6, 0.8, 1)
-        GameTooltip:AddLine(" ")
-        -- Show the whole line, wrapped to a fixed readable width across multiple
-        -- tooltip lines, so long callouts are never cut off at the screen edge.
-        for _, line in ipairs(WrapText(Substitute(self.fullText), PREVIEW_CHARS)) do
-            GameTooltip:AddLine(line, 1, 1, 1)
-        end
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -369,11 +357,16 @@ local function RefreshContent()
             if type(line) == "string" then
                 local row = AcquireRow()
                 row.fullText = line
-                row.label:SetText(Truncate(line, LABEL_CHARS))
                 row:ClearAllPoints()
                 row:SetPoint("TOPLEFT", 6, y)
                 row:SetWidth(width - 12)
-                y = y - ROW_H
+                -- Wrap the label to the row width and grow the row to fit, so the
+                -- whole callout is visible in the list without truncation.
+                row.label:SetWidth((width - 12) - ROW_INSET)
+                row.label:SetText(Substitute(line))
+                local rowH = math.max(row.label:GetStringHeight() + ROW_VPAD, ROW_H)
+                row:SetHeight(rowH)
+                y = y - rowH
             end
         end
         y = y - SECTION_GAP
@@ -642,7 +635,7 @@ local function BuildUI()
 
     local hint = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", contentHeader, "BOTTOMLEFT", 0, -2)
-    hint:SetText("Click a line to send it. Hover to preview the full text.")
+    hint:SetText("Click a line to send it to chat.")
 
     -- scroll frame for messages
     local scroll = CreateFrame("ScrollFrame", "PugHelperScroll", mainFrame, "UIPanelScrollFrameTemplate")
