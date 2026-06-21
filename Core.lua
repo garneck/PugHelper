@@ -46,6 +46,47 @@ local function InGroup()
     return InRaid()
 end
 
+-- Number of raid members (whole raid, incl. self). Prefers the modern engine's
+-- GetNumGroupMembers (the Anniversary client) and falls back to the old API.
+local function RaidCount()
+    if type(GetNumGroupMembers) == "function" then return GetNumGroupMembers() end
+    if type(GetNumRaidMembers) == "function" then return GetNumRaidMembers() end
+    return 0
+end
+
+-- Number of party members NOT counting the player.
+local function PartyCount()
+    if type(GetNumSubgroupMembers) == "function" then return GetNumSubgroupMembers() end
+    if type(GetNumGroupMembers) == "function" then return math.max(GetNumGroupMembers() - 1, 0) end
+    if type(GetNumPartyMembers) == "function" then return GetNumPartyMembers() end
+    return 0
+end
+
+-- Current group member names (self + party/raid), sorted and de-duped.
+local function GroupRoster()
+    local names, seen = {}, {}
+    local function add(n)
+        if n and n ~= "" and not seen[n] then
+            seen[n] = true
+            table.insert(names, n)
+        end
+    end
+    if InRaid() then
+        for i = 1, RaidCount() do
+            local raidName = (type(GetRaidRosterInfo) == "function" and GetRaidRosterInfo(i))
+                or UnitName("raid" .. i)
+            add(raidName)
+        end
+    else
+        add(UnitName("player"))
+        for i = 1, PartyCount() do
+            add(UnitName("party" .. i))
+        end
+    end
+    table.sort(names)
+    return names
+end
+
 -- Replace {TOKEN} with the configured name, or leave {TOKEN} visible if unset.
 local function Substitute(text)
     return (text:gsub("{(%w+)}", function(key)
@@ -232,6 +273,11 @@ local function BuildNamesPanel()
     namesPanel = CreateFrame("Frame", "PugHelperNamesPanel", mainFrame)
     namesPanel:SetPoint("TOPLEFT", 8, -58)
     namesPanel:SetPoint("BOTTOMRIGHT", -8, 8)
+    -- Sit above the scroll content (which lives at a deeper frame level), so the
+    -- panel's background fully covers the message rows instead of letting their
+    -- text bleed through. Draw layers only order within a single frame level.
+    namesPanel:SetFrameLevel(mainFrame:GetFrameLevel() + 100)
+    namesPanel:EnableMouse(true)
 
     local bg = namesPanel:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(true)
@@ -243,7 +289,7 @@ local function BuildNamesPanel()
 
     local help = namesPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     help:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-    help:SetText("These names fill the {TOKENS} in your messages. Type a name and press Enter.")
+    help:SetText("These names fill the {TOKENS} in your messages. Pick a party/raid member from each dropdown.")
     help:SetTextColor(0.8, 0.8, 0.8)
 
     namesPanel.boxes = {}
@@ -251,7 +297,7 @@ local function BuildNamesPanel()
     local perCol = math.ceil(#roles / 2)
     local colX = { 18, 320 }
     local startY = -56
-    local stepY = 30
+    local stepY = 34
 
     for i, role in ipairs(roles) do
         local col = (i <= perCol) and 1 or 2
@@ -260,23 +306,38 @@ local function BuildNamesPanel()
         local yy = startY - rowIndex * stepY
 
         local lbl = namesPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        lbl:SetPoint("TOPLEFT", x, yy)
-        lbl:SetWidth(120)
+        lbl:SetPoint("TOPLEFT", x, yy - 4)
+        lbl:SetWidth(110)
         lbl:SetJustifyH("LEFT")
         lbl:SetText(role.label)
 
-        local eb = CreateFrame("EditBox", nil, namesPanel, "InputBoxTemplate")
-        eb:SetAutoFocus(false)
-        eb:SetSize(120, 18)
-        eb:SetPoint("TOPLEFT", x + 122, yy + 2)
-        eb:SetMaxLetters(40)
-        eb.token = role.key
-        eb:SetScript("OnTextChanged", function(self)
-            PugHelperDB.names[self.token] = self:GetText()
+        -- Dropdown populated live from the current party/raid each time it opens.
+        local dd = CreateFrame("Frame", "PugHelperNameDD" .. role.key, namesPanel, "UIDropDownMenuTemplate")
+        dd:SetPoint("TOPLEFT", x + 104, yy)
+        dd.token = role.key
+        UIDropDownMenu_SetWidth(dd, 110)
+        UIDropDownMenu_Initialize(dd, function()
+            for _, name in ipairs(GroupRoster()) do
+                local nm = name
+                local info = UIDropDownMenu_CreateInfo()
+                info.text    = nm
+                info.checked = (PugHelperDB.names[dd.token] == nm)
+                info.func    = function()
+                    PugHelperDB.names[dd.token] = nm
+                    UIDropDownMenu_SetText(dd, nm)
+                end
+                UIDropDownMenu_AddButton(info)
+            end
+            local info = UIDropDownMenu_CreateInfo()
+            info.text         = "|cff999999(clear)|r"
+            info.notCheckable = true
+            info.func         = function()
+                PugHelperDB.names[dd.token] = ""
+                UIDropDownMenu_SetText(dd, "")
+            end
+            UIDropDownMenu_AddButton(info)
         end)
-        eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-        eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-        namesPanel.boxes[role.key] = eb
+        namesPanel.boxes[role.key] = dd
     end
 
     local done = CreateFrame("Button", nil, namesPanel, "UIPanelButtonTemplate")
@@ -293,9 +354,9 @@ local function BuildNamesPanel()
     clear:SetPoint("RIGHT", done, "LEFT", -8, 0)
     clear:SetText("Clear All")
     clear:SetScript("OnClick", function()
-        for key, eb in pairs(namesPanel.boxes) do
+        for key, dd in pairs(namesPanel.boxes) do
             PugHelperDB.names[key] = ""
-            eb:SetText("")
+            UIDropDownMenu_SetText(dd, "")
         end
     end)
 
@@ -304,8 +365,8 @@ end
 
 local function RefreshNamesPanel()
     if not namesPanel then return end
-    for key, eb in pairs(namesPanel.boxes) do
-        eb:SetText(PugHelperDB.names[key] or "")
+    for key, dd in pairs(namesPanel.boxes) do
+        UIDropDownMenu_SetText(dd, PugHelperDB.names[key] or "")
     end
 end
 
