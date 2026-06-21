@@ -21,11 +21,8 @@ function Slash.Handle(msg)
         ns.UI.ToggleEdit()
 
     elseif cmd == "name" then
-        local token, value = rest:match("^(%S+)%s+(.+)$")
-        if not token then
-            token = rest:match("^(%S+)$")
-            value = ""
-        end
+        -- "TOKEN value" or just "TOKEN" (value defaults to "" -> clears the name).
+        local token, value = rest:match("^(%S+)%s*(.*)$")
         if not token then
             ns.Print("Usage: /pug name TOKEN Yourname   (e.g. /pug name MT Bigtank)")
         elseif not token:match("^%w+$") then
