@@ -202,6 +202,7 @@ local scrollContent
 local raidButtons = {}
 local rowPool, headerPool = {}, {}
 local contentHeader            -- the line at the top of the right pane
+local channelBtn               -- toolbar channel button (label kept in sync, see below)
 
 local LEFT_W       = 158
 local CONTENT_X    = 178
@@ -212,6 +213,12 @@ local LABEL_CHARS  = 78
 
 local function ChannelLabel()
     return "Channel: " .. ((PugHelperDB and PugHelperDB.channel) or "AUTO")
+end
+
+-- Keep the toolbar's channel button label in sync with PugHelperDB.channel,
+-- whichever input path changed it (the button's own cycle or `/pug channel`).
+local function UpdateChannelButton()
+    if channelBtn then channelBtn:SetText(ChannelLabel()) end
 end
 
 -- Acquire a pooled message-row button (parented to the scroll content).
@@ -474,11 +481,10 @@ local function BuildUI()
     bg:SetAllPoints(true)
     bg:SetColorTexture(0.04, 0.04, 0.06, 0.96)
 
-    local function Edge(p1, p2, w, h)
+    -- A 2px border edge; callers anchor it and set its own width/height.
+    local function Edge()
         local t = mainFrame:CreateTexture(nil, "BORDER")
         t:SetColorTexture(0.25, 0.25, 0.30, 1)
-        if w then t:SetWidth(w) end
-        if h then t:SetHeight(h) end
         return t
     end
     local top = Edge(); top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT"); top:SetHeight(2)
@@ -502,17 +508,17 @@ local function BuildUI()
     close:SetScript("OnClick", function() mainFrame:Hide() end)
 
     -- toolbar (channel + names)
-    local channelBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
+    channelBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
     channelBtn:SetSize(150, 22)
     channelBtn:SetPoint("TOPLEFT", 10, -32)
     channelBtn:SetText(ChannelLabel())
-    channelBtn:SetScript("OnClick", function(self)
+    channelBtn:SetScript("OnClick", function()
         local cur = PugHelperDB.channel or "AUTO"
         local idx = 1
         for i, c in ipairs(CHANNELS) do if c == cur then idx = i break end end
         idx = (idx % #CHANNELS) + 1
         PugHelperDB.channel = CHANNELS[idx]
-        self:SetText(ChannelLabel())
+        UpdateChannelButton()
     end)
     channelBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -660,6 +666,7 @@ local function HandleSlash(msg)
         for _, v in ipairs(CHANNELS) do if v == c then ok = true break end end
         if ok then
             PugHelperDB.channel = c
+            UpdateChannelButton()
             Print("Channel set to " .. c)
         else
             Print("Channels: AUTO, RAID, RAID_WARNING, PARTY, SAY, GUILD")
