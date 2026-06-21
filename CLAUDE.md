@@ -70,7 +70,7 @@ The addon is split into focused modules that share one **private namespace**, `n
 - **`Util.lua`** (`ns.util`) — pure helpers, **zero** WoW API: `applyDefaults`, `asList`, `deepCopy`, `trim`, `slug`, `wrap`.
 - **`Api.lua`** (`ns.api`) — all version-sensitive WoW API behind `has`/`hasMethod` guards (group/roster shims).
 - **`Config.lua`** (`ns.Config`) — owns `PugHelperDB`: `DEFAULTS`, channel list, and the **only** typed accessors that touch the saved-vars table.
-- **`Content.lua`** (`ns.Content`) — the registry, the defaults+overrides merge (`Effective`), the editor mutators, `Validate`, `PruneNames`.
+- **`Content.lua`** (`ns.Content`) — the registry, the fork-on-edit customization layer (`Effective`, `materialize`, line/section mutators), `Validate`, `PruneNames`.
 - **`Chat.lua`** (`ns.Chat`) — `Substitute`, `ResolveChannel`, `SendLine`.
 - **`Slash.lua`** (`ns.Slash`) — `/pug` dispatch.
 - **`Boot.lua`** (loads last) — the `ADDON_LOADED` loader; wires the init order.
@@ -82,7 +82,7 @@ The addon is split into focused modules that share one **private namespace**, `n
 ## Key mechanics to preserve
 
 - **Token substitution:** `{KEY}` in a callout line is replaced with the configured name in `Chat.Substitute` via `gsub("{(%w+)}", ...)`. Tokens must be alphanumeric (word chars only); keys come from `Content/Roles.lua`.
-- **Customization / overrides:** built-in callouts are **defaults** registered with `ns:RegisterInstance`. User edits live in `PugHelperDB.custom` keyed by `instanceId` and are layered over defaults by `Content.Effective`, which **never mutates** the registered defaults. Edit in-game via the **Edit** toolbar button (click a line to edit, right-click to delete, "+ Add line" per section); **Reset tab** clears one instance's overrides. Add new override semantics in `Content.lua`, not ad-hoc.
+- **Customization (fork-on-edit):** built-in callouts are **defaults** registered with `ns:RegisterInstance`. The first time a user edits an instance, `Content.materialize` copies that instance's whole `sections` list into `PugHelperDB.custom[instanceId].sections`, which is then authoritative; `Content.Effective` returns that copy (or a copy of the defaults) and **never mutates** the registered defaults. Sections and lines are addressed by display index (recomputed each render), so titles can repeat (e.g. two "Trash" sections). Edit in-game via the **Edit** toolbar button: click a line to edit / right-click to delete, "+ Add line" per section, click a section title to rename / right-click to delete it, "+ Add section" at the bottom; **Reset tab** drops the instance's custom copy. Add new mutators in `Content.lua`, not ad-hoc.
 - **Chat splitting:** outgoing lines are split at word boundaries to a **240-char** limit (`Config.CHAT_LIMIT`) before `SendChatMessage` — keep this when touching `Chat.SendLine` / `util.wrap`.
 - **Channel `AUTO`** resolves RAID → PARTY → SAY based on group state (`Chat.ResolveChannel`).
 - **Saved variables:** single global `PugHelperDB`, initialized in `Config.Init()` on `ADDON_LOADED` and merged against `DEFAULTS` via `util.applyDefaults`. Add new persistent settings to `DEFAULTS` in `Config.lua` and expose them through a `Config` accessor — don't read/write `PugHelperDB` elsewhere.

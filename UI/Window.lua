@@ -63,12 +63,14 @@ local function AcquireRow()
 
     b:SetScript("OnClick", function(self, button)
         if UI.editMode then
-            if self.addRow then
-                UI.OpenAddEditor(self.instanceId, self.sectionTitle)
+            if self.addSection then
+                UI.OpenAddSectionEditor(self.instanceId)
+            elseif self.addRow then
+                UI.OpenAddEditor(self.instanceId, self.sectionIndex)
             elseif button == "RightButton" then
-                UI.DeleteLine(self.instanceId, self.sectionTitle, self.meta)
+                UI.DeleteLine(self.instanceId, self.sectionIndex, self.lineIndex)
             else
-                UI.OpenLineEditor(self.instanceId, self.sectionTitle, self.meta, self.fullText)
+                UI.OpenLineEditor(self.instanceId, self.sectionIndex, self.lineIndex, self.fullText)
             end
         elseif self.fullText and button == "LeftButton" then
             ns.Chat.SendLine(self.fullText)
@@ -77,7 +79,9 @@ local function AcquireRow()
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if UI.editMode then
-            if self.addRow then
+            if self.addSection then
+                GameTooltip:AddLine("Click to add a new section", 0.6, 1, 0.6)
+            elseif self.addRow then
                 GameTooltip:AddLine("Click to add a new line", 0.6, 1, 0.6)
             else
                 GameTooltip:AddLine("Click to edit  -  Right-click to delete", 0.6, 0.8, 1)
@@ -95,13 +99,43 @@ local function AcquireRow()
     return b
 end
 
+-- Section headers are clickable in edit mode (rename / delete section); mouse is
+-- disabled in normal mode so they read as plain headers.
 local function AcquireHeader()
     for _, h in ipairs(headerPool) do
         if not h.inUse then h.inUse = true; h:Show(); return h end
     end
-    local h = UI.scrollContent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    h:SetJustifyH("LEFT")
-    h:SetTextColor(1, 0.82, 0)
+    local h = CreateFrame("Button", nil, UI.scrollContent)
+    h:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+    local hl = h:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints(true)
+    hl:SetColorTexture(1, 0.82, 0, 0.15)
+
+    local fs = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    fs:SetPoint("LEFT", 2, 0)
+    fs:SetPoint("RIGHT", -2, 0)
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    fs:SetTextColor(1, 0.82, 0)
+    h.label = fs
+
+    h:SetScript("OnClick", function(self, button)
+        if not UI.editMode then return end
+        if button == "RightButton" then
+            UI.DeleteSection(self.instanceId, self.sectionIndex)
+        else
+            UI.OpenSectionEditor(self.instanceId, self.sectionIndex, self.titleText)
+        end
+    end)
+    h:SetScript("OnEnter", function(self)
+        if not UI.editMode then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Click to rename section  -  Right-click to delete section", 1, 0.82, 0.4)
+        GameTooltip:Show()
+    end)
+    h:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     h.inUse = true
     table.insert(headerPool, h)
     return h
@@ -125,8 +159,18 @@ local function LayoutRow(row, width, y, text)
     return rowH
 end
 
+-- Reset a pooled row's per-render fields, then style + position it as a line.
+local function PrepRow(id)
+    local row = AcquireRow()
+    row.addRow, row.addSection = nil, nil
+    row.fullText, row.lineIndex, row.sectionIndex = nil, nil, nil
+    row.instanceId = id
+    return row
+end
+
 -- Rebuild the right-hand pane for the currently selected instance (effective
--- content). In edit mode each section also gets a trailing "+ Add line" row.
+-- content). In edit mode each section gets a trailing "+ Add line" row, section
+-- headers become clickable (rename/delete), and an "+ Add section" row is added.
 function UI.Refresh()
     local sc = UI.scrollContent
     if not sc then return end
@@ -140,44 +184,42 @@ function UI.Refresh()
         return
     end
 
-    UI.contentHeader:SetText((inst.name or "(unnamed)")
-        .. (inst.note and ("  |cff999999" .. inst.note .. "|r") or ""))
+    local headerText = (inst.name or "(unnamed)")
+        .. (inst.note and ("  |cff999999" .. inst.note .. "|r") or "")
+    if ns.Content.HasCustom(id) then
+        headerText = headerText .. "  |cff66bb66(customized)|r"
+    end
+    UI.contentHeader:SetText(headerText)
 
     local width = sc:GetWidth()
     local y = -4
-    for _, section in ipairs(ns.util.asList(inst.sections)) do
+    for si, section in ipairs(ns.util.asList(inst.sections)) do
         local h = AcquireHeader()
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", 2, y)
-        h:SetText(section.title or "")
+        h:SetSize(math.max(width - 6, 1), HEADER_H)
+        h:EnableMouse(UI.editMode)
+        h.instanceId   = id
+        h.sectionIndex = si
+        h.titleText    = section.title or ""
+        h.label:SetText(section.title or "")
         y = y - HEADER_H
 
-        local meta = section.lineMeta or {}
-        for i, line in ipairs(ns.util.asList(section.lines)) do
-            local row = AcquireRow()
-            row.addRow       = nil
+        for li, line in ipairs(ns.util.asList(section.lines)) do
+            local row = PrepRow(id)
             row.fullText     = line
-            row.meta         = meta[i]
-            row.instanceId   = id
-            row.sectionTitle = section.title or ""
+            row.sectionIndex = si
+            row.lineIndex    = li
             row.bullet:Show()
-            if row.meta and row.meta.overridden then
-                row.bullet:SetVertexColor(1, 0.82, 0.2)   -- customized line
-                row.label:SetTextColor(1, 0.93, 0.72)
-            else
-                row.bullet:SetVertexColor(0.5, 0.7, 1.0)
-                row.label:SetTextColor(1, 1, 1)
-            end
+            row.bullet:SetVertexColor(0.5, 0.7, 1.0)
+            row.label:SetTextColor(1, 1, 1)
             y = y - LayoutRow(row, width, y, ns.Chat.Substitute(line))
         end
 
         if UI.editMode then
-            local add = AcquireRow()
+            local add = PrepRow(id)
             add.addRow       = true
-            add.fullText     = nil
-            add.meta         = nil
-            add.instanceId   = id
-            add.sectionTitle = section.title or ""
+            add.sectionIndex = si
             add.bullet:Hide()
             add.label:SetTextColor(0.5, 1.0, 0.5)
             y = y - LayoutRow(add, width, y, "+ Add line")
@@ -186,9 +228,23 @@ function UI.Refresh()
         y = y - SECTION_GAP
     end
 
-    sc:SetHeight(math.max(-y + 4, 10))
+    if UI.editMode then
+        local addSec = PrepRow(id)
+        addSec.addSection = true
+        addSec.bullet:Hide()
+        addSec.label:SetTextColor(0.5, 0.85, 1.0)
+        y = y - LayoutRow(addSec, width, y, "+ Add section")
+    end
+
+    -- Keep the current scroll position across edit-driven refreshes (clamped to
+    -- the new range); SelectInstance resets to the top when switching tabs.
+    local newHeight = math.max(-y + 4, 10)
+    sc:SetHeight(newHeight)
     local sf = sc:GetParent()
-    if sf and sf.SetVerticalScroll then sf:SetVerticalScroll(0) end
+    if sf and sf.SetVerticalScroll then
+        local maxScroll = math.max(0, newHeight - sf:GetHeight())
+        if sf:GetVerticalScroll() > maxScroll then sf:SetVerticalScroll(maxScroll) end
+    end
 end
 
 function UI.SelectInstance(instanceId)
@@ -197,6 +253,8 @@ function UI.SelectInstance(instanceId)
         if id == instanceId then btn:LockHighlight() else btn:UnlockHighlight() end
     end
     UI.Refresh()
+    local sf = UI.scrollContent and UI.scrollContent:GetParent()
+    if sf and sf.SetVerticalScroll then sf:SetVerticalScroll(0) end
 end
 
 function UI.UpdateChannelButton()

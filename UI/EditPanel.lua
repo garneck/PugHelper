@@ -100,24 +100,44 @@ local function OpenPopup(titleText, initialText, onSave)
 end
 
 -- ---------------------------------------------------------------------------
---  Editor actions (called from message rows in edit mode)
+--  Editor actions (called from message rows / section headers in edit mode).
+--  Sections and lines are addressed by their current display index.
 -- ---------------------------------------------------------------------------
-function UI.OpenLineEditor(instanceId, sectionTitle, meta, currentText)
-    OpenPopup("Edit line  -  " .. (sectionTitle or ""), currentText, function(text)
-        ns.Content.SetLine(instanceId, sectionTitle, meta, sanitize(text))
+function UI.OpenLineEditor(instanceId, sectionIndex, lineIndex, currentText)
+    OpenPopup("Edit line", currentText, function(text)
+        ns.Content.SetLine(instanceId, sectionIndex, lineIndex, sanitize(text))
         UI.Refresh()
     end)
 end
 
-function UI.OpenAddEditor(instanceId, sectionTitle)
-    OpenPopup("Add line  -  " .. (sectionTitle or ""), "", function(text)
-        ns.Content.AddLine(instanceId, sectionTitle, sanitize(text))
+function UI.OpenAddEditor(instanceId, sectionIndex)
+    OpenPopup("Add line", "", function(text)
+        ns.Content.AddLine(instanceId, sectionIndex, sanitize(text))
         UI.Refresh()
     end)
 end
 
-function UI.DeleteLine(instanceId, sectionTitle, meta)
-    ns.Content.DeleteLine(instanceId, sectionTitle, meta)
+function UI.DeleteLine(instanceId, sectionIndex, lineIndex)
+    ns.Content.DeleteLine(instanceId, sectionIndex, lineIndex)
+    UI.Refresh()
+end
+
+function UI.OpenSectionEditor(instanceId, sectionIndex, currentTitle)
+    OpenPopup("Rename section", currentTitle, function(text)
+        ns.Content.SetSectionTitle(instanceId, sectionIndex, sanitize(text))
+        UI.Refresh()
+    end)
+end
+
+function UI.OpenAddSectionEditor(instanceId)
+    OpenPopup("New section title", "", function(text)
+        ns.Content.AddSection(instanceId, sanitize(text))
+        UI.Refresh()
+    end)
+end
+
+function UI.DeleteSection(instanceId, sectionIndex)
+    ns.Content.DeleteSection(instanceId, sectionIndex)
     UI.Refresh()
 end
 
@@ -132,7 +152,7 @@ function UI.ToggleEdit()
     end
     if UI.hint then
         UI.hint:SetText(UI.editMode
-            and "Edit mode: click a line to edit, right-click to delete."
+            and "Edit mode: click a line or section title to edit, right-click to delete."
             or  "Click a line to send it to chat.")
     end
     if popup then popup:Hide() end
@@ -148,7 +168,7 @@ function UI.BuildEditControls(parent, after)
     editBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Customize callouts", 1, 1, 1)
-        GameTooltip:AddLine("Edit or delete lines and add your own. Changes are saved per tab.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Edit/add/delete lines and rename, add, or remove sections. Changes are saved per tab.", 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     editBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)

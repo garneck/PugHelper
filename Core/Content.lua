@@ -98,87 +98,94 @@ function Content.FirstInstanceId()
     return nil
 end
 
--- Build the effective (default + user override) instance to display/send.
--- Returns a fresh table; each section gets:
---   section.lines    = { "text", ... }           -- for rendering & sending
---   section.lineMeta = { {origin=i[,overridden]} | {added=j}, ... }  (parallel)
--- The editor uses lineMeta to know where to write a change back.
+-- Build the effective instance to display/send. If the user has customized this
+-- instance, its sections are a fully user-owned copy (fork-on-edit, see the
+-- mutators below); otherwise they are a copy of the registered defaults. Either
+-- way a fresh table is returned and the registered defaults are never mutated.
+-- Sections and lines are addressed positionally (section index, line index) by
+-- the editor, recomputed on every render.
 function Content.Effective(instanceId)
     local def = Content.byId[instanceId]
     if type(def) ~= "table" then return nil end
 
     local result = util.deepCopy(def)
     local custom = Config.Custom()[instanceId]
-    custom = (type(custom) == "table") and custom or {}
-    local overrides, added, hidden =
-        util.asList(custom.overrides), util.asList(custom.added), util.asList(custom.hidden)
-
+    if type(custom) == "table" and type(custom.sections) == "table" then
+        result.sections = util.deepCopy(custom.sections)
+    end
+    -- Normalize so the UI can always ipairs lines safely.
     for _, section in ipairs(util.asList(result.sections)) do
-        local title  = section.title or ""
-        local secOv  = util.asList(overrides[title])
-        local secHi  = util.asList(hidden[title])
-        local lines, meta = {}, {}
-        for i, line in ipairs(util.asList(section.lines)) do
-            if not secHi[i] then
-                table.insert(lines, secOv[i] or line)
-                table.insert(meta, { origin = i, overridden = secOv[i] ~= nil })
-            end
-        end
-        for j, extra in ipairs(util.asList(added[title])) do
-            table.insert(lines, extra)
-            table.insert(meta, { added = j })
-        end
-        section.lines, section.lineMeta = lines, meta
+        section.lines = util.asList(section.lines)
     end
     return result
 end
 
 -- ---------------------------------------------------------------------------
---  Customization mutators (write PugHelperDB.custom via Config.Custom)
+--  Customization mutators (fork-on-edit; persisted via Config.Custom)
 -- ---------------------------------------------------------------------------
-local function ensure(t, k)
-    t[k] = t[k] or {}
-    return t[k]
-end
-
-local function instCustom(instanceId)
+-- Return the instance's owned, editable section list, copying it out of the
+-- registered defaults the first time it's touched. From then on this copy is
+-- authoritative for the instance until Reset restores the defaults. This avoids
+-- any title/index identity problems and lets sections be renamed, added, or
+-- removed freely (e.g. two separate "Trash" sections).
+local function materialize(instanceId)
     local store = Config.Custom()
-    store[instanceId] = store[instanceId] or {}
-    return store[instanceId]
+    local c = store[instanceId]
+    if type(c) ~= "table" or type(c.sections) ~= "table" then
+        local def = Content.byId[instanceId]
+        c = { sections = util.deepCopy(def and def.sections or {}) }
+        store[instanceId] = c
+    end
+    return c.sections
 end
 
--- Edit a line in place. `meta` is the lineMeta entry for the displayed row.
-function Content.SetLine(instanceId, sectionTitle, meta, text)
-    if not meta then return end
-    text = util.trim(text)
-    local c = instCustom(instanceId)
-    if meta.added then
-        ensure(ensure(c, "added"), sectionTitle)[meta.added] = text
-    elseif meta.origin then
-        ensure(ensure(c, "overrides"), sectionTitle)[meta.origin] = text
+local function getSection(instanceId, sectionIndex)
+    local section = materialize(instanceId)[sectionIndex]
+    return type(section) == "table" and section or nil
+end
+
+-- Lines (addressed by section index + line index) ----------------------------
+function Content.SetLine(instanceId, sectionIndex, lineIndex, text)
+    local section = getSection(instanceId, sectionIndex)
+    if not section then return end
+    section.lines = util.asList(section.lines)
+    if section.lines[lineIndex] ~= nil then
+        section.lines[lineIndex] = util.trim(text)
     end
 end
 
--- Append a brand-new line to a section.
-function Content.AddLine(instanceId, sectionTitle, text)
+function Content.AddLine(instanceId, sectionIndex, text)
     text = util.trim(text)
     if text == "" then return end
-    table.insert(ensure(ensure(instCustom(instanceId), "added"), sectionTitle), text)
+    local section = getSection(instanceId, sectionIndex)
+    if not section then return end
+    section.lines = util.asList(section.lines)
+    table.insert(section.lines, text)
 end
 
--- Remove a displayed line: hide it if it's a default, or drop it if user-added.
-function Content.DeleteLine(instanceId, sectionTitle, meta)
-    if not meta then return end
-    local c = instCustom(instanceId)
-    if meta.added then
-        local sec = c.added and c.added[sectionTitle]
-        if sec then table.remove(sec, meta.added) end
-    elseif meta.origin then
-        ensure(ensure(c, "hidden"), sectionTitle)[meta.origin] = true
-        if c.overrides and c.overrides[sectionTitle] then
-            c.overrides[sectionTitle][meta.origin] = nil
-        end
-    end
+function Content.DeleteLine(instanceId, sectionIndex, lineIndex)
+    local section = getSection(instanceId, sectionIndex)
+    if not section or type(section.lines) ~= "table" then return end
+    table.remove(section.lines, lineIndex)
+end
+
+-- Sections (addressed by section index) --------------------------------------
+function Content.SetSectionTitle(instanceId, sectionIndex, title)
+    title = util.trim(title)
+    if title == "" then return end
+    local section = getSection(instanceId, sectionIndex)
+    if section then section.title = title end
+end
+
+function Content.AddSection(instanceId, title)
+    title = util.trim(title)
+    if title == "" then return end
+    table.insert(materialize(instanceId), { title = title, lines = {} })
+end
+
+function Content.DeleteSection(instanceId, sectionIndex)
+    local sections = materialize(instanceId)
+    if sections[sectionIndex] then table.remove(sections, sectionIndex) end
 end
 
 -- Drop all user customization for an instance (restore built-in defaults).
@@ -186,10 +193,10 @@ function Content.ResetInstance(instanceId)
     Config.Custom()[instanceId] = nil
 end
 
--- True if the instance has any user customization (controls the Reset button).
+-- True if the instance has a user-owned section copy (controls the Reset button).
 function Content.HasCustom(instanceId)
     local c = Config.Custom()[instanceId]
-    return type(c) == "table" and next(c) ~= nil
+    return type(c) == "table" and type(c.sections) == "table"
 end
 
 -- ---------------------------------------------------------------------------
@@ -216,19 +223,10 @@ function Content.Validate()
             if type(inst) ~= "table" or type(inst.sections) ~= "table" then
                 ns.Print("|cffff5555Data warning:|r instance '" .. tostring(label) .. "' has no sections.")
             else
-                local seen = {}
                 for s, section in ipairs(inst.sections) do
                     if type(section) ~= "table" or type(section.lines) ~= "table" then
                         ns.Print("|cffff5555Data warning:|r instance '" .. tostring(label)
                             .. "', section #" .. s .. " has no lines.")
-                    else
-                        local t = section.title or ""
-                        if seen[t] then
-                            ns.Print("|cffff5555Data warning:|r instance '" .. tostring(label)
-                                .. "' has duplicate section title '" .. t
-                                .. "' - per-line customization may target the wrong section.")
-                        end
-                        seen[t] = true
                     end
                 end
             end
