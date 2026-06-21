@@ -21,29 +21,33 @@ globals = {
 unused_args = false
 
 -- WoW API surface used by the addon. read_globals = referenced but never assigned.
+-- Keep this list in sync with what Core.lua actually calls: every entry should be
+-- used, and every WoW global the code touches should be listed (or luacheck flags
+-- it as an undefined global). Standard Lua 5.1 names come from std = "lua51".
 read_globals = {
+    -- Frames / UI
     "CreateFrame",
     "UIParent",
     "UISpecialFrames",
-    "GetTime",
+    "GameTooltip",
+    "DEFAULT_CHAT_FRAME",
+    -- Dropdown menu helpers (UIDropDownMenuTemplate)
+    "UIDropDownMenu_SetWidth",
+    "UIDropDownMenu_Initialize",
+    "UIDropDownMenu_CreateInfo",
+    "UIDropDownMenu_AddButton",
+    "UIDropDownMenu_SetText",
+    -- Chat
     "SendChatMessage",
+    -- Group / roster state
     "IsInRaid",
     "IsInGroup",
     "GetNumRaidMembers",
     "GetNumPartyMembers",
     "GetNumGroupMembers",
-    "InCombatLockdown",
-    "PlaySound",
-    "GameTooltip",
-    "DEFAULT_CHAT_FRAME",
-    "C_Timer",
-    "strsplit",
-    "strtrim",
-    "strjoin",
-    "tinsert",
-    "tremove",
-    "wipe",
-    "format",
+    "GetNumSubgroupMembers",
+    "GetRaidRosterInfo",
+    "UnitName",
 }
 
 -- Long callout strings in Data.lua are intentional; don't flag line length.
