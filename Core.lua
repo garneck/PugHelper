@@ -37,6 +37,12 @@ local function ApplyDefaults(dst, src)
     return dst
 end
 
+-- Coerce a possibly-missing/garbage value from Data.lua into a list we can ipairs
+-- without erroring. Malformed content is meant to degrade, not crash the addon.
+local function asList(t)
+    return type(t) == "table" and t or {}
+end
+
 -- Group detection that works on both modern Classic and very old API names.
 local function InRaid()
     if type(IsInRaid) == "function" then return IsInRaid() end
@@ -149,6 +155,44 @@ local function Truncate(text, maxChars)
     return text
 end
 
+-- One-time sanity check of the user-edited content in Data.lua. Prints friendly,
+-- actionable warnings instead of letting a typo throw a cryptic Lua error later.
+-- It only reports problems; the UI code below also degrades gracefully (asList).
+local function ValidateData()
+    if type(PugHelperRoles) ~= "table" then
+        Print("|cffff5555Data error:|r PugHelperRoles (Data.lua) is missing or not a table.")
+    else
+        for i, role in ipairs(PugHelperRoles) do
+            if type(role) ~= "table" or not role.key or not role.label then
+                Print("|cffff5555Data warning:|r role #" .. i .. " needs both a key and a label - skipped.")
+            elseif not tostring(role.key):match("^%w+$") then
+                Print("|cffff5555Data warning:|r role key '" .. tostring(role.key)
+                    .. "' must be letters/numbers only, or its {TOKEN} will never fill in.")
+            end
+        end
+    end
+
+    if type(PugHelperRaids) ~= "table" then
+        Print("|cffff5555Data error:|r PugHelperRaids (Data.lua) is missing or not a table.")
+        return
+    end
+    for i, raid in ipairs(PugHelperRaids) do
+        local label = (type(raid) == "table" and raid.name) or ("#" .. i)
+        if type(raid) ~= "table" then
+            Print("|cffff5555Data warning:|r raid #" .. i .. " is not a table - skipped.")
+        elseif type(raid.sections) ~= "table" then
+            Print("|cffff5555Data warning:|r raid '" .. tostring(label) .. "' has no sections.")
+        else
+            for s, section in ipairs(raid.sections) do
+                if type(section) ~= "table" or type(section.lines) ~= "table" then
+                    Print("|cffff5555Data warning:|r raid '" .. tostring(label)
+                        .. "', section #" .. s .. " has no lines.")
+                end
+            end
+        end
+    end
+end
+
 -- ===========================================================================
 --  UI
 -- ===========================================================================
@@ -239,28 +283,30 @@ local function RefreshContent()
     if not scrollContent then return end
     ReleasePool()
 
-    local raid = PugHelperRaids[PugHelperDB.selectedRaid]
-    if not raid then return end
+    local raid = asList(PugHelperRaids)[PugHelperDB.selectedRaid]
+    if type(raid) ~= "table" then return end
 
-    contentHeader:SetText(raid.name .. (raid.note and ("  |cff999999" .. raid.note .. "|r") or ""))
+    contentHeader:SetText((raid.name or "(unnamed)") .. (raid.note and ("  |cff999999" .. raid.note .. "|r") or ""))
 
     local width = scrollContent:GetWidth()
     local y = -4
-    for _, section in ipairs(raid.sections) do
+    for _, section in ipairs(asList(raid.sections)) do
         local h = AcquireHeader()
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", 2, y)
-        h:SetText(section.title)
+        h:SetText(section.title or "")
         y = y - HEADER_H
 
-        for _, line in ipairs(section.lines) do
-            local row = AcquireRow()
-            row.fullText = line
-            row.label:SetText(Truncate(line, LABEL_CHARS))
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", 6, y)
-            row:SetWidth(width - 12)
-            y = y - ROW_H
+        for _, line in ipairs(asList(section.lines)) do
+            if type(line) == "string" then
+                local row = AcquireRow()
+                row.fullText = line
+                row.label:SetText(Truncate(line, LABEL_CHARS))
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT", 6, y)
+                row:SetWidth(width - 12)
+                y = y - ROW_H
+            end
         end
         y = y - SECTION_GAP
     end
@@ -311,7 +357,12 @@ local function BuildNamesPanel()
     -- that would overflow the panel vertically (there's no scroll here) — widen the
     -- panel or add a third column if PugHelperRoles grows substantially.
     namesPanel.boxes = {}
-    local roles = PugHelperRoles
+    -- Only roles with a usable key get a box; malformed roles are skipped here
+    -- (and flagged at load by ValidateData) instead of erroring on concatenation.
+    local roles = {}
+    for _, role in ipairs(asList(PugHelperRoles)) do
+        if type(role) == "table" and role.key then table.insert(roles, role) end
+    end
     local perCol = math.ceil(#roles / 2)
     local colX = { 18, 320 }
     local startY = -56
@@ -327,7 +378,7 @@ local function BuildNamesPanel()
         lbl:SetPoint("TOPLEFT", x, yy - 4)
         lbl:SetWidth(110)
         lbl:SetJustifyH("LEFT")
-        lbl:SetText(role.label)
+        lbl:SetText(role.label or role.key)
 
         -- Dropdown populated live from the current party/raid each time it opens.
         local dd = CreateFrame("Frame", "PugHelperNameDD" .. role.key, namesPanel, "UIDropDownMenuTemplate")
@@ -490,7 +541,7 @@ local function BuildUI()
     listHeader:SetText("RAIDS")
 
     local prev
-    for i, raid in ipairs(PugHelperRaids) do
+    for i, raid in ipairs(asList(PugHelperRaids)) do
         local b = CreateFrame("Button", nil, mainFrame)
         b:SetSize(LEFT_W, ROW_H)
         if prev then
@@ -508,7 +559,7 @@ local function BuildUI()
         fs:SetPoint("RIGHT", -4, 0)
         fs:SetJustifyH("LEFT")
         fs:SetWordWrap(false)
-        fs:SetText(raid.name)
+        fs:SetText((type(raid) == "table" and raid.name) or "(unnamed)")
 
         b:SetScript("OnClick", function() SelectRaid(i) end)
         raidButtons[i] = b
@@ -597,9 +648,11 @@ local function HandleSlash(msg)
         end
     elseif cmd == "names" then
         Print("Current names:")
-        for _, role in ipairs(PugHelperRoles) do
-            local n = PugHelperDB.names[role.key]
-            Print("  {" .. role.key .. "} (" .. role.label .. ") = " .. (n and n ~= "" and n or "|cff888888-not set-|r"))
+        for _, role in ipairs(asList(PugHelperRoles)) do
+            if type(role) == "table" and role.key then
+                local n = PugHelperDB.names[role.key]
+                Print("  {" .. role.key .. "} (" .. (role.label or "?") .. ") = " .. (n and n ~= "" and n or "|cff888888-not set-|r"))
+            end
         end
     elseif cmd == "channel" then
         local c = rest:upper()
@@ -638,9 +691,10 @@ loader:SetScript("OnEvent", function(self, event, name)
     if name ~= ADDON_NAME then return end
     PugHelperDB = PugHelperDB or {}
     ApplyDefaults(PugHelperDB, DEFAULTS)
-    if not PugHelperRaids[PugHelperDB.selectedRaid] then
+    if type(PugHelperRaids) ~= "table" or not PugHelperRaids[PugHelperDB.selectedRaid] then
         PugHelperDB.selectedRaid = 1
     end
+    ValidateData()
     Print("loaded. Type /pug to open.")
     self:UnregisterEvent("ADDON_LOADED")
 end)
