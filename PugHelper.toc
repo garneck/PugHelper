@@ -1,0 +1,10 @@
+## Interface: 20505
+## Title: PUG Helper
+## Notes: Quick raid callouts and assignments for PUG raid leaders (TBC)
+## Author: You
+## Version: 1.0
+## SavedVariables: PugHelperDB
+## IconTexture: Interface\Icons\INV_Misc_GroupLooking
+
+Data.lua
+Core.lua

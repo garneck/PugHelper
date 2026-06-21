@@ -1,0 +1,8 @@
+# Claude Code local/personal files (not shared)
+.claude/settings.local.json
+.claude/*.lock
+CLAUDE.local.md
+
+# OS / editor cruft
+Thumbs.db
+.DS_Store
