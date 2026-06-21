@@ -2,6 +2,7 @@
 .claude/settings.local.json
 .claude/*.lock
 CLAUDE.local.md
+memory/
 
 # OS / editor cruft
 Thumbs.db
