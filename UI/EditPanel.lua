@@ -152,7 +152,7 @@ function UI.ToggleEdit()
     end
     if UI.hint then
         UI.hint:SetText(UI.editMode
-            and "Edit mode: click a line or section title to edit, right-click to delete."
+            and "Edit mode: drag a section title to reorder; click to edit, right-click to delete."
             or  "Click a line to send it to chat.")
     end
     if popup then popup:Hide() end

@@ -29,9 +29,48 @@ UI.BUTTON_H        = 22
 
 UI.editMode        = false
 UI.instanceButtons = {}
+UI.sectionHeaders  = {}         -- section index -> header frame (rebuilt each render)
+UI.drag            = nil        -- active section drag: { instanceId, fromIndex, toIndex }
 
 -- Object pools: reuse pooled frames rather than creating new ones per render.
 local rowPool, headerPool = {}, {}
+
+-- A thin line shown between sections during a drag to mark the drop position.
+local dropIndicator
+local function DropIndicator()
+    if not dropIndicator then
+        dropIndicator = UI.scrollContent:CreateTexture(nil, "OVERLAY")
+        dropIndicator:SetColorTexture(0.4, 0.8, 1.0, 0.95)
+        dropIndicator:Hide()
+    end
+    return dropIndicator
+end
+
+-- During a drag, mark `targetIndex` (1..#sections+1) as the drop slot and draw
+-- the indicator at the top edge of that section's header (or the "+ Add section"
+-- row for the end slot).
+function UI.SetDropTarget(targetIndex)
+    if not UI.drag then return end
+    UI.drag.toIndex = targetIndex
+    local anchor = UI.sectionHeaders[targetIndex]
+    if not anchor and targetIndex == (UI.sectionCount or 0) + 1 then
+        anchor = UI.addSectionRow
+    end
+    local ind = DropIndicator()
+    if anchor then
+        ind:ClearAllPoints()
+        ind:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 0)
+        ind:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 0)
+        ind:SetHeight(2)
+        ind:Show()
+    else
+        ind:Hide()
+    end
+end
+
+local function ClearDrop()
+    if dropIndicator then dropIndicator:Hide() end
+end
 
 local function AcquireRow()
     for _, b in ipairs(rowPool) do
@@ -77,6 +116,17 @@ local function AcquireRow()
         end
     end)
     b:SetScript("OnEnter", function(self)
+        -- While dragging a section, hovering any row targets that section's slot.
+        if UI.drag then
+            if UI.drag.instanceId == self.instanceId then
+                if self.addSection then
+                    UI.SetDropTarget((UI.sectionCount or 0) + 1)
+                elseif self.sectionIndex then
+                    UI.SetDropTarget(self.sectionIndex)
+                end
+            end
+            return
+        end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if UI.editMode then
             if self.addSection then
@@ -107,6 +157,7 @@ local function AcquireHeader()
     end
     local h = CreateFrame("Button", nil, UI.scrollContent)
     h:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    h:RegisterForDrag("LeftButton")
 
     local hl = h:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints(true)
@@ -128,10 +179,32 @@ local function AcquireHeader()
             UI.OpenSectionEditor(self.instanceId, self.sectionIndex, self.titleText)
         end
     end)
+    -- Drag the section title to reorder. A click without movement still fires
+    -- OnClick (rename), so the two gestures coexist.
+    h:SetScript("OnDragStart", function(self)
+        if not UI.editMode then return end
+        UI.drag = { instanceId = self.instanceId, fromIndex = self.sectionIndex }
+        self.label:SetAlpha(0.35)
+        GameTooltip:Hide()
+    end)
+    h:SetScript("OnDragStop", function(self)
+        local d = UI.drag
+        UI.drag = nil
+        self.label:SetAlpha(1)
+        ClearDrop()
+        if d and d.toIndex then
+            ns.Content.MoveSection(d.instanceId, d.fromIndex, d.toIndex)
+            UI.Refresh()
+        end
+    end)
     h:SetScript("OnEnter", function(self)
+        if UI.drag then
+            if UI.drag.instanceId == self.instanceId then UI.SetDropTarget(self.sectionIndex) end
+            return
+        end
         if not UI.editMode then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Click to rename section  -  Right-click to delete section", 1, 0.82, 0.4)
+        GameTooltip:AddLine("Drag to reorder  -  Click to rename  -  Right-click to delete", 1, 0.82, 0.4)
         GameTooltip:Show()
     end)
     h:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -191,9 +264,14 @@ function UI.Refresh()
     end
     UI.contentHeader:SetText(headerText)
 
+    local sections = ns.util.asList(inst.sections)
+    UI.sectionHeaders = {}
+    UI.sectionCount   = #sections
+    UI.addSectionRow  = nil
+
     local width = sc:GetWidth()
     local y = -4
-    for si, section in ipairs(ns.util.asList(inst.sections)) do
+    for si, section in ipairs(sections) do
         local h = AcquireHeader()
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", 2, y)
@@ -203,6 +281,8 @@ function UI.Refresh()
         h.sectionIndex = si
         h.titleText    = section.title or ""
         h.label:SetText(section.title or "")
+        h.label:SetAlpha(1)
+        UI.sectionHeaders[si] = h
         y = y - HEADER_H
 
         for li, line in ipairs(ns.util.asList(section.lines)) do
@@ -234,6 +314,7 @@ function UI.Refresh()
         addSec.bullet:Hide()
         addSec.label:SetTextColor(0.5, 0.85, 1.0)
         y = y - LayoutRow(addSec, width, y, "+ Add section")
+        UI.addSectionRow = addSec
     end
 
     -- Keep the current scroll position across edit-driven refreshes (clamped to

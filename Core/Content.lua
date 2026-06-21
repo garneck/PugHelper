@@ -188,6 +188,20 @@ function Content.DeleteSection(instanceId, sectionIndex)
     if sections[sectionIndex] then table.remove(sections, sectionIndex) end
 end
 
+-- Move the section at fromIndex so it lands immediately before `insertBefore`
+-- (a slot in 1..#sections+1; #sections+1 means "to the end"). No-op if the move
+-- wouldn't change order.
+function Content.MoveSection(instanceId, fromIndex, insertBefore)
+    local sections = materialize(instanceId)
+    local n = #sections
+    if fromIndex < 1 or fromIndex > n then return end
+    insertBefore = math.max(1, math.min(insertBefore or (n + 1), n + 1))
+    if insertBefore == fromIndex or insertBefore == fromIndex + 1 then return end
+    local item = table.remove(sections, fromIndex)
+    if insertBefore > fromIndex then insertBefore = insertBefore - 1 end
+    table.insert(sections, insertBefore, item)
+end
+
 -- Drop all user customization for an instance (restore built-in defaults).
 function Content.ResetInstance(instanceId)
     Config.Custom()[instanceId] = nil
