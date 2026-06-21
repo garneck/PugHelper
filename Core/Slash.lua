@@ -8,15 +8,6 @@
 local _, ns = ...
 local Slash = ns.Slash
 
--- Make sure the window exists and is visible (used by commands that act on it).
-local function EnsureOpen()
-    if not ns.UI.frame then ns.UI.BuildUI() end
-    if not ns.UI.frame:IsShown() then
-        ns.UI.frame:Show()
-        ns.UI.SelectInstance(ns.Config.SelectedInstance() or ns.Content.FirstInstanceId())
-    end
-end
-
 function Slash.Handle(msg)
     msg = ns.util.trim(msg)
     local cmd, rest = msg:match("^(%S+)%s*(.-)$")
@@ -26,7 +17,7 @@ function Slash.Handle(msg)
         ns.UI.Toggle()
 
     elseif cmd == "edit" then
-        EnsureOpen()
+        ns.UI.Open()
         ns.UI.ToggleEdit()
 
     elseif cmd == "name" then
@@ -54,12 +45,10 @@ function Slash.Handle(msg)
 
     elseif cmd == "names" then
         ns.Print("Current names:")
-        for _, role in ipairs(ns.Content.Roles()) do
-            if type(role) == "table" and role.key then
-                local n = ns.Config.GetName(role.key)
-                ns.Print("  {" .. role.key .. "} (" .. (role.label or "?") .. ") = "
-                    .. (n and n ~= "" and n or "|cff888888-not set-|r"))
-            end
+        for _, role in ipairs(ns.Content.EffectiveRoles(ns.Config.SelectedInstance())) do
+            local n = ns.Config.GetName(role.key)
+            ns.Print("  {" .. role.key .. "} (" .. (role.label or "?") .. ") = "
+                .. (n and n ~= "" and n or "|cff888888-not set-|r"))
         end
 
     elseif cmd == "channel" then

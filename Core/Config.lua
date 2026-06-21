@@ -18,6 +18,12 @@ local DEFAULTS = {
     channel = "AUTO",   -- one of CHANNEL_NAMES below
     names   = {},       -- token -> player name
     custom  = {},       -- instanceId -> content overrides (see Content.lua)
+    -- User role customization (see Content.lua). `global` applies on every tab;
+    -- `byInstance[instanceId]` only shows on that raid's tab (each a list of
+    -- { key, label }, like the built-ins in Content/Roles.lua). `hidden[instanceId]`
+    -- is a set of uppercased tokens suppressed on that tab, so any role -
+    -- including a built-in - can be deleted from a raid without touching defaults.
+    customRoles = { global = {}, byInstance = {}, hidden = {} },
 }
 
 -- Output channels in cycle order, defined in ONE place. `requires` is the group
@@ -31,10 +37,11 @@ Config.CHANNELS = {
     { name = "GUILD" },
 }
 
-Config.CHANNEL_NAMES, Config.CHANNEL_REQUIRES = {}, {}
-for _, c in ipairs(Config.CHANNELS) do
-    table.insert(Config.CHANNEL_NAMES, c.name)
-    Config.CHANNEL_REQUIRES[c.name] = c.requires
+Config.CHANNEL_NAMES, Config.CHANNEL_REQUIRES, Config.CHANNEL_INDEX = {}, {}, {}
+for i, c in ipairs(Config.CHANNELS) do
+    Config.CHANNEL_NAMES[i]          = c.name
+    Config.CHANNEL_REQUIRES[c.name]  = c.requires
+    Config.CHANNEL_INDEX[c.name]     = i
 end
 
 -- Max bytes per SendChatMessage. Hard client limit is 255; we leave headroom
@@ -55,10 +62,7 @@ function Config.Channel()
 end
 
 function Config.IsChannel(name)
-    for _, n in ipairs(Config.CHANNEL_NAMES) do
-        if n == name then return true end
-    end
-    return false
+    return Config.CHANNEL_INDEX[name] ~= nil
 end
 
 function Config.SetChannel(name)
@@ -71,10 +75,7 @@ end
 
 -- Advance to the next channel in cycle order; returns the new channel name.
 function Config.CycleChannel()
-    local cur, idx = Config.Channel(), 1
-    for i, name in ipairs(Config.CHANNEL_NAMES) do
-        if name == cur then idx = i break end
-    end
+    local idx = Config.CHANNEL_INDEX[Config.Channel()] or 1
     idx = (idx % #Config.CHANNEL_NAMES) + 1
     PugHelperDB.channel = Config.CHANNEL_NAMES[idx]
     return PugHelperDB.channel
@@ -138,4 +139,21 @@ function Config.Custom()
     if not PugHelperDB then return {} end
     PugHelperDB.custom = PugHelperDB.custom or {}
     return PugHelperDB.custom
+end
+
+-- ---------------------------------------------------------------------------
+--  Custom role definitions (user-added {TOKEN}s; see Content.lua)
+-- ---------------------------------------------------------------------------
+-- The raw custom-role store, structure ensured: { global = {...}, byInstance =
+-- { [instanceId] = {...} } } where each list holds { key, label } entries.
+-- Content.lua owns the add/remove policy (token sanitizing, collisions); this
+-- just guarantees the shape so the rest of the addon never pokes PugHelperDB.
+function Config.CustomRoles()
+    if not PugHelperDB then return { global = {}, byInstance = {} } end
+    local cr = PugHelperDB.customRoles or {}
+    cr.global     = cr.global or {}
+    cr.byInstance = cr.byInstance or {}
+    cr.hidden     = cr.hidden or {}
+    PugHelperDB.customRoles = cr
+    return cr
 end

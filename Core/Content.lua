@@ -108,6 +108,161 @@ function Content.Roles()
     return util.asList(Content.roles)
 end
 
+-- Keep only well-formed { key, label } entries (a table with a key) from a role
+-- list, so a malformed entry degrades instead of erroring downstream. Shared by
+-- the built-in (ValidRoles) and custom (GlobalRoles/InstanceRoles) readers.
+local function validRoleList(list)
+    local out = {}
+    for _, role in ipairs(util.asList(list)) do
+        if type(role) == "table" and role.key then table.insert(out, role) end
+    end
+    return out
+end
+
+-- Only the well-formed roles. Consumers that just want to USE roles (names
+-- panel, /pug names, name pruning) go through EffectiveRoles, which calls this
+-- for the built-ins; the diagnostic path (Content.Validate) still walks the raw
+-- list to report typos.
+function Content.ValidRoles()
+    return validRoleList(Content.Roles())
+end
+
+-- ---------------------------------------------------------------------------
+--  Custom roles (user-defined {TOKEN}s, scoped global or per-instance)
+-- ---------------------------------------------------------------------------
+-- These let the user add their own role tokens at runtime (via the Set Names
+-- panel) on top of the built-ins from Content/Roles.lua. A "global" role shows
+-- on every tab; a per-instance role only shows on its raid's tab, so the panel
+-- doesn't fill up with one raid's roles while you're looking at another.
+-- Names themselves stay keyed by bare token in Config.Names (you only run one
+-- raid at a time and pick names from the live roster), so substitution and the
+-- send path are untouched.
+
+function Content.GlobalRoles()
+    return validRoleList(Config.CustomRoles().global)
+end
+
+function Content.InstanceRoles(instanceId)
+    if not instanceId then return {} end
+    return validRoleList(Config.CustomRoles().byInstance[instanceId])
+end
+
+-- The set of uppercased tokens the user has hidden on a given tab (or nil). Lets
+-- any role - including a built-in we can't erase - be deleted from a raid.
+local function hiddenSet(instanceId)
+    local h = instanceId and Config.CustomRoles().hidden[instanceId]
+    return (type(h) == "table") and h or nil
+end
+
+-- The full ordered role list to offer for name assignment on the given tab:
+-- built-ins, then global custom roles, then this instance's custom roles, minus
+-- anything hidden on this tab. Each entry is tagged { key, label, scope,
+-- instanceId } so the UI knows the token, its display label, and how to delete
+-- it (custom -> remove; built-in -> hide). Deduped by uppercased token (first
+-- occurrence wins) so a stray collision never shows the same token twice. Single
+-- source of "roles the user can assign a name to", used by the names panel,
+-- /pug names, and PruneNames.
+function Content.EffectiveRoles(instanceId)
+    local out, seen = {}, {}
+    local hidden = hiddenSet(instanceId)
+    local function add(role, scope, owner)
+        local key = tostring(role.key)
+        local up  = key:upper()
+        if seen[up] or (hidden and hidden[up]) then return end
+        seen[up] = true
+        table.insert(out, { key = key, label = role.label or key, scope = scope, instanceId = owner })
+    end
+    for _, role in ipairs(Content.ValidRoles())              do add(role, "builtin")            end
+    for _, role in ipairs(Content.GlobalRoles())             do add(role, "global")             end
+    for _, role in ipairs(Content.InstanceRoles(instanceId)) do add(role, "instance", instanceId) end
+    return out
+end
+
+-- True if any effective role on the given tab already uses this (uppercased)
+-- token. A global add is thus checked against built-ins + globals; a per-instance
+-- add additionally against that instance's own roles. Cross-raid reuse of a
+-- token is allowed (the two tabs are never shown together).
+local function tokenTaken(instanceId, token)
+    local up = token:upper()
+    for _, role in ipairs(Content.EffectiveRoles(instanceId)) do
+        if role.key:upper() == up then return true end
+    end
+    return false
+end
+
+-- Add a user-defined role. instanceId == nil => global (every tab); otherwise it
+-- only appears on that raid's tab. The token is sanitized to letters/numbers and
+-- uppercased so it matches the {%w+} substitution pattern. Returns the stored key
+-- on success, or nil (with a chat warning) on an empty or duplicate token.
+function Content.AddCustomRole(instanceId, name, token)
+    token = tostring(token or ""):gsub("%W", ""):upper()
+    if token == "" then
+        ns.Print("|cffff5555Role:|r token must contain at least one letter or number.")
+        return nil
+    end
+    if tokenTaken(instanceId, token) then
+        ns.Print("|cffff5555Role:|r a role with token {" .. token .. "} already exists here.")
+        return nil
+    end
+    name = util.trim(name)
+    if name == "" then name = token end
+
+    local store = Config.CustomRoles()
+    local list
+    if instanceId then
+        store.byInstance[instanceId] = store.byInstance[instanceId] or {}
+        list = store.byInstance[instanceId]
+    else
+        list = store.global
+    end
+    table.insert(list, { key = token, label = name })
+    return token
+end
+
+-- Remove a user-defined role by key from the given scope (instanceId == nil =>
+-- global). Drops an emptied per-instance list so the store doesn't accumulate
+-- empty tables. Any saved player name is left to PruneNames to clean up.
+function Content.RemoveCustomRole(instanceId, key)
+    local store = Config.CustomRoles()
+    local list  = instanceId and store.byInstance[instanceId] or store.global
+    if type(list) ~= "table" then return end
+    local up = tostring(key):upper()
+    for i = #list, 1, -1 do
+        local role = list[i]
+        if type(role) == "table" and tostring(role.key):upper() == up then
+            table.remove(list, i)
+        end
+    end
+    if instanceId and #list == 0 then
+        store.byInstance[instanceId] = nil
+    end
+end
+
+-- Hide a role on a tab without deleting any definition. Used to "delete" a
+-- built-in (or a global custom role) from one raid: EffectiveRoles skips hidden
+-- tokens, and a per-raid reset un-hides them. instanceId is required (hiding is
+-- always tab-local; built-ins stay available on every other tab).
+function Content.HideRole(instanceId, key)
+    if not instanceId then return end
+    local hidden = Config.CustomRoles().hidden
+    hidden[instanceId] = hidden[instanceId] or {}
+    hidden[instanceId][tostring(key):upper()] = true
+end
+
+-- Restore default roles. scope "instance" drops this raid's added roles and
+-- un-hides its built-ins; scope "global" removes every global custom role. Built-
+-- in definitions are never touched, so this only clears the user's own overrides.
+function Content.ResetRoles(instanceId, scope)
+    local store = Config.CustomRoles()
+    if scope == "global" then
+        local g = store.global
+        for i = #g, 1, -1 do g[i] = nil end
+    elseif scope == "instance" and instanceId then
+        store.byInstance[instanceId] = nil
+        store.hidden[instanceId]     = nil
+    end
+end
+
 function Content.Categories()
     return Content.categories
 end
@@ -126,6 +281,16 @@ function Content.FirstInstanceId()
         if list and list[1] then return list[1].id end
     end
     return nil
+end
+
+-- The instance to open: the saved selection if it still exists, else the first
+-- registered one (handles old saves / removed content). The single source of
+-- this fallback, shared by Boot (normalizes the saved value at load) and the UI
+-- open path, so the policy isn't re-derived per caller.
+function Content.ResolveSelectedInstance()
+    local sel = Config.SelectedInstance()
+    if sel and Content.Get(sel) then return sel end
+    return Content.FirstInstanceId()
 end
 
 -- The instance's user-owned section copy if one exists (the fork-on-edit store),
@@ -155,11 +320,9 @@ function Content.Effective(instanceId)
         if k ~= "sections" then result[k] = util.deepCopy(v) end
     end
     result.sections = util.deepCopy(customSections(instanceId) or def.sections)
-
-    -- Normalize so the UI can always ipairs lines safely.
-    for _, section in ipairs(util.asList(result.sections)) do
-        section.lines = util.asList(section.lines)
-    end
+    -- Both sources are already normalized (defaults via normalizeSections, custom
+    -- via the mutators), and every reader wraps section.lines in util.asList, so
+    -- no extra normalization pass is needed here.
     return result
 end
 
@@ -181,16 +344,20 @@ local function materialize(instanceId)
     return sections
 end
 
+-- Fetch an owned section by display index, guaranteeing section.lines is a table
+-- so the line mutators below don't each re-assert it. Returns nil for a missing
+-- or non-table slot.
 local function getSection(instanceId, sectionIndex)
     local section = materialize(instanceId)[sectionIndex]
-    return type(section) == "table" and section or nil
+    if type(section) ~= "table" then return nil end
+    section.lines = util.asList(section.lines)
+    return section
 end
 
 -- Lines (addressed by section index + line index) ----------------------------
 function Content.SetLine(instanceId, sectionIndex, lineIndex, text)
     local section = getSection(instanceId, sectionIndex)
     if not section then return end
-    section.lines = util.asList(section.lines)
     if section.lines[lineIndex] ~= nil then
         section.lines[lineIndex] = util.trim(text)
     end
@@ -201,13 +368,12 @@ function Content.AddLine(instanceId, sectionIndex, text)
     if text == "" then return end
     local section = getSection(instanceId, sectionIndex)
     if not section then return end
-    section.lines = util.asList(section.lines)
     table.insert(section.lines, text)
 end
 
 function Content.DeleteLine(instanceId, sectionIndex, lineIndex)
     local section = getSection(instanceId, sectionIndex)
-    if not section or type(section.lines) ~= "table" then return end
+    if not section then return end
     table.remove(section.lines, lineIndex)
 end
 
@@ -294,8 +460,18 @@ end
 -- changes. Case-insensitive; leaves custom-but-still-used tokens alone.
 function Content.PruneNames()
     local live = {}
-    for _, role in ipairs(Content.Roles()) do
-        if type(role) == "table" and role.key then live[tostring(role.key):upper()] = true end
+    -- Defined roles keep their name even before any callout references them:
+    -- built-ins, global custom roles, and every instance's custom roles.
+    for _, role in ipairs(Content.ValidRoles()) do
+        live[tostring(role.key):upper()] = true
+    end
+    for _, role in ipairs(Content.GlobalRoles()) do
+        live[tostring(role.key):upper()] = true
+    end
+    for _, list in pairs(Config.CustomRoles().byInstance) do
+        for _, role in ipairs(validRoleList(list)) do
+            live[tostring(role.key):upper()] = true
+        end
     end
     for _, cat in ipairs(Content.categories) do
         for _, inst in ipairs(Content.Instances(cat.id)) do

@@ -114,7 +114,7 @@ local function AcquireRow()
             elseif self.addRow then
                 UI.OpenAddEditor(self.instanceId, self.sectionIndex)
             elseif button == "RightButton" then
-                UI.DeleteLine(self.instanceId, self.sectionIndex, self.lineIndex)
+                UI.DeleteLine(self.instanceId, self.sectionIndex, self.lineIndex, self.fullText)
             else
                 UI.OpenLineEditor(self.instanceId, self.sectionIndex, self.lineIndex, self.fullText)
             end
@@ -184,7 +184,7 @@ local function AcquireHeader()
     h:SetScript("OnClick", function(self, button)
         if not UI.editMode then return end
         if button == "RightButton" then
-            UI.DeleteSection(self.instanceId, self.sectionIndex)
+            UI.DeleteSection(self.instanceId, self.sectionIndex, self.titleText)
         else
             UI.OpenSectionEditor(self.instanceId, self.sectionIndex, self.titleText)
         end
@@ -350,6 +350,9 @@ function UI.SelectInstance(instanceId)
         if id == instanceId then btn:LockHighlight() else btn:UnlockHighlight() end
     end
     UI.Refresh()
+    -- Per-raid custom roles are tied to the selected tab, so keep the Set Names
+    -- panel in sync when it's open (cheap no-op while it's hidden).
+    if UI.RefreshNamesPanel then UI.RefreshNamesPanel() end
     local sf = UI.scrollContent and UI.scrollContent:GetParent()
     if sf and sf.SetVerticalScroll then sf:SetVerticalScroll(0) end
 end
@@ -377,17 +380,9 @@ function UI.RestorePoint()
     end
 end
 
--- Wire mouse-wheel scrolling onto a scroll frame (the template ships a draggable
--- bar; this adds the wheel). Uses only standard ScrollFrame methods.
-local function EnableWheel(scrollFrame, step)
-    scrollFrame:EnableMouseWheel(true)
-    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
-        local range = self:GetVerticalScrollRange()
-        local pos = self:GetVerticalScroll() - delta * (step or 24)
-        if pos < 0 then pos = 0 elseif pos > range then pos = range end
-        self:SetVerticalScroll(pos)
-    end)
-end
+-- Mouse-wheel scrolling for the template scroll frames (shared helper in
+-- UI/Helpers.lua, also used by the Set Names role list).
+local EnableWheel = UI.EnableWheel
 
 -- ---------------------------------------------------------------------------
 --  Build the left category list (one header per category, then its instances).
@@ -526,12 +521,21 @@ function UI.BuildUI()
     mainFrame:Hide()
 end
 
-function UI.Toggle()
+-- Bring the window up (building it on first use) and select the resolved
+-- instance. The single "open the window" sequence, shared by Toggle and the
+-- slash commands so neither re-implements it.
+function UI.Open()
     if not UI.frame then UI.BuildUI() end
-    if UI.frame:IsShown() then
+    if not UI.frame:IsShown() then
+        UI.frame:Show()
+        UI.SelectInstance(ns.Content.ResolveSelectedInstance())
+    end
+end
+
+function UI.Toggle()
+    if UI.frame and UI.frame:IsShown() then
         UI.frame:Hide()
     else
-        UI.frame:Show()
-        UI.SelectInstance(ns.Config.SelectedInstance() or ns.Content.FirstInstanceId())
+        UI.Open()
     end
 end

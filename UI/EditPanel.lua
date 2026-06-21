@@ -73,13 +73,14 @@ local function BuildPopup()
 end
 
 local function OpenPopup(titleText, initialText, onSave)
+    local text = initialText or ""
     popup = popup or BuildPopup()
     popup.title:SetText(titleText)
     popup.onSave = onSave
-    popup.edit:SetText(initialText or "")
+    popup.edit:SetText(text)
     popup:Show()
     popup.edit:SetFocus()
-    popup.edit:SetCursorPosition(#(initialText or ""))
+    popup.edit:SetCursorPosition(#text)
 end
 
 -- Dismiss the editor popup. UI.Refresh calls this so a popup can never outlive
@@ -107,9 +108,17 @@ function UI.OpenAddEditor(instanceId, sectionIndex)
     end)
 end
 
-function UI.DeleteLine(instanceId, sectionIndex, lineIndex)
-    ns.Content.DeleteLine(instanceId, sectionIndex, lineIndex)
-    UI.Refresh()
+-- Right-click delete is confirmed first so a stray click can't drop a callout.
+-- The line's text (trimmed for the dialog) is shown so you delete the right one.
+function UI.DeleteLine(instanceId, sectionIndex, lineIndex, preview)
+    preview = tostring(preview or "")
+    if #preview > 120 then preview = preview:sub(1, 120) .. "..." end
+    local msg = "Delete this line?"
+    if preview ~= "" then msg = msg .. "\n\n|cffffd200" .. preview .. "|r" end
+    UI.Confirm(msg, function()
+        ns.Content.DeleteLine(instanceId, sectionIndex, lineIndex)
+        UI.Refresh()
+    end, "Delete")
 end
 
 function UI.OpenSectionEditor(instanceId, sectionIndex, currentTitle)
@@ -126,9 +135,13 @@ function UI.OpenAddSectionEditor(instanceId)
     end)
 end
 
-function UI.DeleteSection(instanceId, sectionIndex)
-    ns.Content.DeleteSection(instanceId, sectionIndex)
-    UI.Refresh()
+function UI.DeleteSection(instanceId, sectionIndex, title)
+    title = tostring(title or "")
+    local what = (title ~= "") and ('the section "' .. title .. '"') or "this section"
+    UI.Confirm("Delete " .. what .. " and all of its lines?", function()
+        ns.Content.DeleteSection(instanceId, sectionIndex)
+        UI.Refresh()
+    end, "Delete")
 end
 
 -- ---------------------------------------------------------------------------
@@ -172,6 +185,4 @@ function UI.BuildEditControls(parent, after)
     })
     resetBtn:Hide()
     UI.resetBtn = resetBtn
-
-    return editBtn
 end
