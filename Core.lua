@@ -10,13 +10,30 @@ local ADDON_NAME = ...
 --  Saved variables / defaults
 -- ===========================================================================
 local DEFAULTS = {
-    channel = "AUTO",          -- AUTO | RAID | RAID_WARNING | PARTY | SAY | GUILD
+    channel = "AUTO",          -- one of the CHANNELS below
     names   = {},              -- token -> name
     point   = nil,             -- saved window position
     selectedRaid = 1,
 }
 
-local CHANNELS = { "AUTO", "RAID", "RAID_WARNING", "PARTY", "SAY", "GUILD" }
+-- The output channels the user can pick, in cycle order, defined in ONE place.
+-- `requires` is the group state the channel needs; ResolveChannel downgrades to a
+-- valid channel when it isn't met (AUTO is resolved dynamically). The flat name
+-- list and a name->requires lookup are derived below so nothing repeats the list.
+local CHANNELS = {
+    { name = "AUTO" },
+    { name = "RAID",         requires = "raid"  },
+    { name = "RAID_WARNING", requires = "raid"  },
+    { name = "PARTY",        requires = "group" },
+    { name = "SAY" },
+    { name = "GUILD" },
+}
+
+local CHANNEL_NAMES, CHANNEL_REQUIRES = {}, {}
+for _, c in ipairs(CHANNELS) do
+    table.insert(CHANNEL_NAMES, c.name)
+    CHANNEL_REQUIRES[c.name] = c.requires
+end
 
 -- Max bytes per SendChatMessage. The hard client limit is 255; we leave headroom
 -- and split longer callout lines on word boundaries before sending (see SendLine).
@@ -117,10 +134,11 @@ local function ResolveChannel()
         elseif InGroup() then return "PARTY"
         else return "SAY" end
     end
-    if (ch == "RAID" or ch == "RAID_WARNING") and not InRaid() then
+    local requires = CHANNEL_REQUIRES[ch]
+    if requires == "raid" and not InRaid() then
         return InGroup() and "PARTY" or "SAY"
     end
-    if ch == "PARTY" and not InGroup() then
+    if requires == "group" and not InGroup() then
         return "SAY"
     end
     return ch
@@ -193,6 +211,32 @@ local function ValidateData()
     end
 end
 
+-- Drop saved names whose token can no longer be filled in - i.e. it is neither a
+-- current role key nor referenced by any callout line. Keeps PugHelperDB.names
+-- from accumulating leftovers as Data.lua's roles/lines change, without touching
+-- custom tokens that are still in use somewhere. Matching is case-insensitive.
+local function PruneNames()
+    if type(PugHelperDB) ~= "table" or type(PugHelperDB.names) ~= "table" then return end
+    local live = {}
+    for _, role in ipairs(asList(PugHelperRoles)) do
+        if type(role) == "table" and role.key then live[tostring(role.key):upper()] = true end
+    end
+    for _, raid in ipairs(asList(PugHelperRaids)) do
+        for _, section in ipairs(asList(type(raid) == "table" and raid.sections)) do
+            for _, line in ipairs(asList(type(section) == "table" and section.lines)) do
+                if type(line) == "string" then
+                    for token in line:gmatch("{(%w+)}") do live[token:upper()] = true end
+                end
+            end
+        end
+    end
+    for key in pairs(PugHelperDB.names) do
+        if type(key) ~= "string" or not live[key:upper()] then
+            PugHelperDB.names[key] = nil
+        end
+    end
+end
+
 -- ===========================================================================
 --  UI
 -- ===========================================================================
@@ -204,12 +248,16 @@ local rowPool, headerPool = {}, {}
 local contentHeader            -- the line at the top of the right pane
 local channelBtn               -- toolbar channel button (label kept in sync, see below)
 
-local LEFT_W       = 158
-local CONTENT_X    = 178
-local ROW_H        = 22
-local HEADER_H     = 20
-local SECTION_GAP  = 8
-local LABEL_CHARS  = 78
+local FRAME_W      = 660       -- main window size
+local FRAME_H      = 480
+local LEFT_W       = 158       -- raid-list column width
+local CONTENT_X    = 178       -- left edge of the right-hand message pane
+local ROW_H        = 22        -- message row height
+local HEADER_H     = 20        -- section header height
+local SECTION_GAP  = 8         -- gap between sections
+local LABEL_CHARS  = 78        -- chars before a row label is truncated
+local BUTTON_H     = 22        -- toolbar / panel button height
+local TITLE_H      = 26        -- title bar height
 
 local function ChannelLabel()
     return "Channel: " .. ((PugHelperDB and PugHelperDB.channel) or "AUTO")
@@ -417,7 +465,7 @@ local function BuildNamesPanel()
     end
 
     local done = CreateFrame("Button", nil, namesPanel, "UIPanelButtonTemplate")
-    done:SetSize(90, 22)
+    done:SetSize(90, BUTTON_H)
     done:SetPoint("BOTTOMRIGHT", -14, 12)
     done:SetText("Done")
     done:SetScript("OnClick", function()
@@ -426,7 +474,7 @@ local function BuildNamesPanel()
     end)
 
     local clear = CreateFrame("Button", nil, namesPanel, "UIPanelButtonTemplate")
-    clear:SetSize(90, 22)
+    clear:SetSize(90, BUTTON_H)
     clear:SetPoint("RIGHT", done, "LEFT", -8, 0)
     clear:SetText("Clear All")
     clear:SetScript("OnClick", function()
@@ -466,7 +514,7 @@ end
 
 local function BuildUI()
     mainFrame = CreateFrame("Frame", "PugHelperFrame", UIParent)
-    mainFrame:SetSize(660, 480)
+    mainFrame:SetSize(FRAME_W, FRAME_H)
     mainFrame:SetFrameStrata("HIGH")
     mainFrame:SetClampedToScreen(true)
     mainFrame:SetMovable(true)
@@ -496,7 +544,7 @@ local function BuildUI()
     local titleBg = mainFrame:CreateTexture(nil, "ARTWORK")
     titleBg:SetPoint("TOPLEFT", 2, -2)
     titleBg:SetPoint("TOPRIGHT", -2, -2)
-    titleBg:SetHeight(26)
+    titleBg:SetHeight(TITLE_H)
     titleBg:SetColorTexture(0.10, 0.10, 0.16, 1)
 
     local title = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -509,15 +557,15 @@ local function BuildUI()
 
     -- toolbar (channel + names)
     channelBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    channelBtn:SetSize(150, 22)
+    channelBtn:SetSize(150, BUTTON_H)
     channelBtn:SetPoint("TOPLEFT", 10, -32)
     channelBtn:SetText(ChannelLabel())
     channelBtn:SetScript("OnClick", function()
         local cur = PugHelperDB.channel or "AUTO"
         local idx = 1
-        for i, c in ipairs(CHANNELS) do if c == cur then idx = i break end end
-        idx = (idx % #CHANNELS) + 1
-        PugHelperDB.channel = CHANNELS[idx]
+        for i, name in ipairs(CHANNEL_NAMES) do if name == cur then idx = i break end end
+        idx = (idx % #CHANNEL_NAMES) + 1
+        PugHelperDB.channel = CHANNEL_NAMES[idx]
         UpdateChannelButton()
     end)
     channelBtn:SetScript("OnEnter", function(self)
@@ -529,7 +577,7 @@ local function BuildUI()
     channelBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local namesBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    namesBtn:SetSize(110, 22)
+    namesBtn:SetSize(110, BUTTON_H)
     namesBtn:SetPoint("LEFT", channelBtn, "RIGHT", 8, 0)
     namesBtn:SetText("Set Names")
     namesBtn:SetScript("OnClick", function()
@@ -663,13 +711,13 @@ local function HandleSlash(msg)
     elseif cmd == "channel" then
         local c = rest:upper()
         local ok = false
-        for _, v in ipairs(CHANNELS) do if v == c then ok = true break end end
+        for _, name in ipairs(CHANNEL_NAMES) do if name == c then ok = true break end end
         if ok then
             PugHelperDB.channel = c
             UpdateChannelButton()
             Print("Channel set to " .. c)
         else
-            Print("Channels: AUTO, RAID, RAID_WARNING, PARTY, SAY, GUILD")
+            Print("Channels: " .. table.concat(CHANNEL_NAMES, ", "))
         end
     elseif cmd == "reset" then
         PugHelperDB.point = nil
@@ -702,6 +750,7 @@ loader:SetScript("OnEvent", function(self, event, name)
         PugHelperDB.selectedRaid = 1
     end
     ValidateData()
+    PruneNames()
     Print("loaded. Type /pug to open.")
     self:UnregisterEvent("ADDON_LOADED")
 end)
