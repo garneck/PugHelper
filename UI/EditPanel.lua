@@ -173,10 +173,16 @@ function UI.BuildEditControls(parent, after)
 
     local resetBtn = UI.Button(parent, 110, UI.BUTTON_H, "Reset tab", function()
         local id = ns.Config.SelectedInstance()
-        if id then
-            ns.Content.ResetInstance(id)
-            UI.Refresh()
-        end
+        if not id then return end
+        -- Reset tab drops ALL of this tab's edits/additions/deletions, so it is
+        -- confirmed like every other destructive action (shared UI.Confirm).
+        local name = ns.Content.InstanceName(id, "this tab")
+        UI.Confirm("Restore the built-in callouts for " .. name
+            .. " and discard all your edits, additions, and deletions for it?",
+            function()
+                ns.Content.ResetInstance(id)
+                UI.Refresh()
+            end, "Reset tab")
     end)
     resetBtn:SetPoint("LEFT", editBtn, "RIGHT", 8, 0)
     UI.Tooltip(resetBtn, {

@@ -275,6 +275,14 @@ function Content.Get(instanceId)
     return Content.byId[instanceId]
 end
 
+-- Display name for an instance id, or `fallback` (default "(unnamed)") when the
+-- id is unknown. One home for the id -> label lookup the UI would otherwise
+-- re-roll with its own type-check and fallback string.
+function Content.InstanceName(instanceId, fallback)
+    local inst = Content.Get(instanceId)
+    return (type(inst) == "table" and inst.name) or fallback or "(unnamed)"
+end
+
 function Content.FirstInstanceId()
     for _, cat in ipairs(Content.categories) do
         local list = Content.defaults[cat.id]

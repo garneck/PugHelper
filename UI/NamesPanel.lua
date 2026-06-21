@@ -128,8 +128,7 @@ function UI.RebuildRoleRows()
     -- Name the current tab so "This raid" scope is unambiguous (the panel covers
     -- the tab list while it's open).
     if panel.addHeader then
-        local inst = selId and ns.Content.Get(selId)
-        local raid = (type(inst) == "table" and inst.name) or "this raid"
+        local raid = ns.Content.InstanceName(selId, "this raid")
         panel.addHeader:SetText("Add a custom role  |cff808080(This raid = " .. raid .. ")|r")
     end
 
@@ -310,8 +309,7 @@ function UI.BuildNamesPanel(parent)
     -- Reset roles (confirmed) at the bottom-left: separate local / global scopes.
     local resetRaid = UI.Button(panel, 96, UI.BUTTON_H, "Reset raid", function()
         local id   = ns.Config.SelectedInstance()
-        local inst = id and ns.Content.Get(id)
-        local raid = (type(inst) == "table" and inst.name) or "this raid"
+        local raid = ns.Content.InstanceName(id, "this raid")
         UI.Confirm("Restore the built-in roles for " .. raid
             .. " and remove the custom roles you added to it?",
             function() ns.Content.ResetRoles(id, "instance"); UI.RebuildRoleRows() end,

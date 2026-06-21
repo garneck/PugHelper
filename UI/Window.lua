@@ -33,7 +33,10 @@ UI.sectionHeaders  = {}         -- section index -> header frame (rebuilt each r
 UI.drag            = nil        -- active section drag: { instanceId, fromIndex, toIndex }
 
 -- Object pools: reuse pooled frames rather than creating new ones per render.
+-- A render walks each pool with a forward cursor (reset in ReleasePool), so
+-- acquiring N frames is O(N) rather than re-scanning the pool for a free slot.
 local rowPool, headerPool = {}, {}
+local rowCursor, headerCursor = 0, 0
 
 -- A thin line shown between sections during a drag to mark the drop position.
 local dropIndicator
@@ -80,10 +83,10 @@ local function CancelDropTarget()
 end
 
 local function AcquireRow()
-    for _, b in ipairs(rowPool) do
-        if not b.inUse then b.inUse = true; b:Show(); return b end
-    end
-    local b = CreateFrame("Button", nil, UI.scrollContent)
+    rowCursor = rowCursor + 1
+    local b = rowPool[rowCursor]
+    if b then b:Show(); return b end
+    b = CreateFrame("Button", nil, UI.scrollContent)
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
@@ -154,18 +157,17 @@ local function AcquireRow()
         CancelDropTarget()
     end)
 
-    b.inUse = true
-    table.insert(rowPool, b)
+    rowPool[rowCursor] = b
     return b
 end
 
 -- Section headers are clickable in edit mode (rename / delete section); mouse is
 -- disabled in normal mode so they read as plain headers.
 local function AcquireHeader()
-    for _, h in ipairs(headerPool) do
-        if not h.inUse then h.inUse = true; h:Show(); return h end
-    end
-    local h = CreateFrame("Button", nil, UI.scrollContent)
+    headerCursor = headerCursor + 1
+    local h = headerPool[headerCursor]
+    if h then h:Show(); return h end
+    h = CreateFrame("Button", nil, UI.scrollContent)
     h:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     h:RegisterForDrag("LeftButton")
 
@@ -222,14 +224,14 @@ local function AcquireHeader()
         CancelDropTarget()
     end)
 
-    h.inUse = true
-    table.insert(headerPool, h)
+    headerPool[headerCursor] = h
     return h
 end
 
 local function ReleasePool()
-    for _, b in ipairs(rowPool) do b.inUse = false; b:Hide() end
-    for _, h in ipairs(headerPool) do h.inUse = false; h:Hide() end
+    for _, b in ipairs(rowPool) do b:Hide() end
+    for _, h in ipairs(headerPool) do h:Hide() end
+    rowCursor, headerCursor = 0, 0
 end
 
 -- Position a row, set its (already-styled) label width FIRST, then its text, so
@@ -380,10 +382,6 @@ function UI.RestorePoint()
     end
 end
 
--- Mouse-wheel scrolling for the template scroll frames (shared helper in
--- UI/Helpers.lua, also used by the Set Names role list).
-local EnableWheel = UI.EnableWheel
-
 -- ---------------------------------------------------------------------------
 --  Build the left category list (one header per category, then its instances).
 --  Built into a scroll child (`parent`) so any number of tabs fits.
@@ -483,7 +481,7 @@ function UI.BuildUI()
     local listContent = CreateFrame("Frame", nil, listScroll)
     listContent:SetSize(LEFT_W, 10)
     listScroll:SetScrollChild(listContent)
-    EnableWheel(listScroll, 28)
+    UI.EnableWheel(listScroll, 28)
     BuildList(listContent)
 
     -- right content header + hint
@@ -514,7 +512,7 @@ function UI.BuildUI()
             UI.Refresh()
         end
     end)
-    EnableWheel(scroll, 40)
+    UI.EnableWheel(scroll, 40)
 
     if UI.BuildNamesPanel then UI.BuildNamesPanel(mainFrame) end
     UI.RestorePoint()

@@ -149,7 +149,7 @@ end
 -- Content.lua owns the add/remove policy (token sanitizing, collisions); this
 -- just guarantees the shape so the rest of the addon never pokes PugHelperDB.
 function Config.CustomRoles()
-    if not PugHelperDB then return { global = {}, byInstance = {} } end
+    if not PugHelperDB then return { global = {}, byInstance = {}, hidden = {} } end
     local cr = PugHelperDB.customRoles or {}
     cr.global     = cr.global or {}
     cr.byInstance = cr.byInstance or {}

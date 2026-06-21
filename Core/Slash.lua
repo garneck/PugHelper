@@ -33,8 +33,8 @@ function Slash.Handle(msg)
             ns.Print("Token must be letters/numbers only (no spaces, dashes, or underscores): " .. token)
         else
             token = token:upper()
-            ns.Config.SetName(token, value or "")
-            if value and value ~= "" then
+            ns.Config.SetName(token, value)
+            if value ~= "" then
                 ns.Print("Set {" .. token .. "} = " .. value)
             else
                 ns.Print("Cleared {" .. token .. "}")
