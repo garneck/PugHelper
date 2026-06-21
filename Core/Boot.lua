@@ -14,12 +14,10 @@ loader:SetScript("OnEvent", function(self, event, name)
 
     ns.Config.Init()
 
-    -- Resolve the selected instance: keep a still-valid saved choice, else fall
-    -- back to the first registered instance (handles old saves / removed content).
-    local sel = ns.Config.SelectedInstance()
-    if not sel or not ns.Content.Get(sel) then
-        ns.Config.SetSelectedInstance(ns.Content.FirstInstanceId())
-    end
+    -- Normalize the saved selection (keep it if still valid, else fall back to
+    -- the first registered instance) so old saves / removed content can't leave
+    -- a dangling id. The fallback policy lives in Content.ResolveSelectedInstance.
+    ns.Config.SetSelectedInstance(ns.Content.ResolveSelectedInstance())
 
     ns.Content.Validate()
     ns.Content.PruneNames()

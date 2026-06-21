@@ -21,24 +21,24 @@ function Chat.Substitute(text)
     end))
 end
 
+-- Best channel for the current group state: Raid > Party > Say. Used both for
+-- AUTO and to downgrade a manual raid-only override when not in a raid.
+local function bestAvailable()
+    if api.InRaid() then return "RAID" end
+    if api.InGroup() then return "PARTY" end
+    return "SAY"
+end
+
 -- Resolve the configured channel to one valid for the CURRENT group state.
--- AUTO picks Raid > Party > Say; a manual RAID/RAID_WARNING/PARTY override is
+-- AUTO picks the best available; a manual RAID/RAID_WARNING/PARTY override is
 -- quietly downgraded when you're not in such a group, so sending never errors
 -- with "You are not in a raid/party group".
 function Chat.ResolveChannel()
     local ch = Config.Channel()
-    if ch == "AUTO" then
-        if api.InRaid() then return "RAID"
-        elseif api.InGroup() then return "PARTY"
-        else return "SAY" end
-    end
+    if ch == "AUTO" then return bestAvailable() end
     local requires = Config.CHANNEL_REQUIRES[ch]
-    if requires == "raid" and not api.InRaid() then
-        return api.InGroup() and "PARTY" or "SAY"
-    end
-    if requires == "group" and not api.InGroup() then
-        return "SAY"
-    end
+    if requires == "raid" and not api.InRaid() then return bestAvailable() end
+    if requires == "group" and not api.InGroup() then return "SAY" end
     return ch
 end
 
