@@ -29,7 +29,7 @@ Because both the old and new names can be present-or-absent depending on the bui
 Hallucinated API is the #1 failure mode in this repo. Do not write a call to a global function, frame method, template, or `C_*` namespace unless you actually know it exists in this client. If you are introducing a WoW API call that is **not already used elsewhere in this codebase**, you must either be certain it is standard TBC/Classic API *or* wrap it in a type-guard with a fallback (next rule). Prefer reusing an API the codebase already calls over introducing a new one.
 
 ### The compat-shim pattern (mandatory for any version-sensitive or uncertain call)
-This is the established pattern in `Core.lua` — see `InRaid()`, `InGroup()`, `RaidCount()`, `PartyCount()`. Any call that might be missing on some build MUST be guarded:
+This is the established pattern in `Core/Api.lua` (the `ns.api` module) — see `api.InRaid()`, `api.InGroup()`, `api.RaidCount()`, `api.PartyCount()`, and the `api.has()` / `api.hasMethod()` guard helpers. Any call that might be missing on some build MUST be guarded:
 
 ```lua
 -- Prefer the modern call, fall back to the old one, then a safe default.
@@ -41,44 +41,62 @@ end
 ```
 
 Rules for shims:
-- Guard with `type(Foo) == "function"` (or `type(Ns) == "table" and type(Ns.Foo) == "function"` for namespaces) — **never** call a possibly-missing global bare.
+- Guard with `api.has("Foo")` / `type(Foo) == "function"` (or `api.hasMethod(Ns, "Foo")` for namespaces) — **never** call a possibly-missing global bare.
 - Always provide a fallback path and a final safe default; never let the function error if every API is absent.
-- Keep the shim `local` and reuse it everywhere instead of repeating the guard inline.
+- Add new shims to `Core/Api.lua` (`ns.api`) and reuse them everywhere instead of repeating the guard inline.
 
 ### Specific landmines (do not step on these)
 - **`C_*` namespaces:** do not assume `C_Timer.After`, `C_ChatInfo.*`, `C_PartyInfo.*`, etc. exist. Guard the namespace **and** the function before calling, with a fallback.
-- **No backdrop system:** the UI is deliberately texture-based (see `Edge()` + `SetColorTexture` in `BuildUI`). Do **not** reach for `:SetBackdrop`, `BackdropTemplateMixin`, or `"BackdropTemplate"` — they are not guaranteed and we intentionally avoid them.
-- **`CreateFrame` templates must be real:** only use templates the client ships and that we already rely on — `UIPanelButtonTemplate`, `UIPanelCloseButton`, `UIPanelScrollFrameTemplate`, `UIDropDownMenuTemplate` (plus the `UISpecialFrames` global table for Escape-to-close). Do not invent template names.
+- **No backdrop system:** the UI is deliberately texture-based (see `Edge()` + `SetColorTexture` in `UI/Window.lua` and `UI/EditPanel.lua`). Do **not** reach for `:SetBackdrop`, `BackdropTemplateMixin`, or `"BackdropTemplate"` — they are not guaranteed and we intentionally avoid them.
+- **`CreateFrame` templates must be real:** only use templates the client ships and that we already rely on — `UIPanelButtonTemplate`, `UIPanelCloseButton`, `UIPanelScrollFrameTemplate`, `UIDropDownMenuTemplate` (plus the `UISpecialFrames` global table for Escape-to-close). The in-game editor uses a plain `CreateFrame("EditBox")` with `SetMultiLine`/`SetAutoFocus`/`SetMaxLetters` (no template) — do not swap in `InputScrollFrameTemplate` or invent template names.
 - **`UIDropDownMenu`:** use the documented helpers already used here — `UIDropDownMenu_Initialize`, `UIDropDownMenu_CreateInfo`, `UIDropDownMenu_AddButton`, `UIDropDownMenu_SetWidth`, `UIDropDownMenu_SetText`. Don't substitute retail menu APIs (`MenuUtil`, `C_Menu`, etc.).
-- **`SendChatMessage(msg, channel)`:** valid channel types are `SAY`, `YELL`, `PARTY`, `RAID`, `RAID_WARNING`, `GUILD`, `WHISPER`, `CHANNEL`. `RAID_WARNING` only delivers if you are raid lead/assist (otherwise nothing is sent). Keep the 240-char word-boundary split in `SendLine`.
-- **Roster API signatures:** `GetRaidRosterInfo(i)` returns `name, rank, subgroup, ...` (name first); player/unit names come from `UnitName("player")`, `UnitName("party"..i)`, `UnitName("raid"..i)`. Don't assume retail roster helpers.
-- **Events:** register with `frame:RegisterEvent(...)` and handle in an `OnEvent` script (see the loader at the bottom of `Core.lua`). Do not use retail-only event utilities.
+- **`SendChatMessage(msg, channel)`:** valid channel types are `SAY`, `YELL`, `PARTY`, `RAID`, `RAID_WARNING`, `GUILD`, `WHISPER`, `CHANNEL`. `RAID_WARNING` only delivers if you are raid lead/assist (otherwise nothing is sent). Keep the 240-char word-boundary split in `Chat.SendLine` / `util.wrap`.
+- **Roster API signatures:** `GetRaidRosterInfo(i)` returns `name, rank, subgroup, ...` (name first); player/unit names come from `UnitName("player")`, `UnitName("party"..i)`, `UnitName("raid"..i)`. Don't assume retail roster helpers. (All of this lives in `api.GroupRoster()`.)
+- **Events:** register with `frame:RegisterEvent(...)` and handle in an `OnEvent` script (see the loader in `Core/Boot.lua`). Do not use retail-only event utilities.
 
 ### Before you finish any change that adds a WoW API call
 Ask yourself explicitly: *Does this exact function exist in the TBC-Anniversary client, and am I sure of its signature and return values?* If the answer is anything short of "yes, certain," guard it with the shim pattern or replace it with API the codebase already uses. When you genuinely cannot verify, say so in your summary rather than shipping an unguarded call.
 
 ## File roles
 
-- **`Data.lua`** — content only. Edit this for raids and callouts. It's a pure data table: `PugHelperRaids` (raids → `sections` → `lines`) and `PugHelperRoles` (role `key`/`label` pairs). No functions.
-- **`Core.lua`** — the engine (UI, events, chat, slash commands). Do not put content here. The header comment says users edit `Data.lua`, not `Core.lua`.
-- Load order in `.toc` is `Data.lua` then `Core.lua` — Core depends on the globals Data defines.
+The addon is split into focused modules that share one **private namespace**, `ns` — the addon's second `...` vararg (`local _, ns = ...`). Everything hangs off `ns`; the only remaining globals are `PugHelperDB` (saved vars) and the `SLASH_*` / `SlashCmdList` slash registration.
+
+**Content — edit these for raids/callouts (no engine code):**
+- **`Content/Roles.lua`** — role tokens via `ns:RegisterRoles{ ... }` (`key`/`label` pairs).
+- **`Content/Raids/<Name>.lua`** — one file per instance via `ns:RegisterInstance("raids", { name, note, sections })`. To add a raid, copy `Karazhan.lua`, change the content, and add the file to `.toc`. `Content/Heroics/` is reserved for the (currently empty) **Heroics** category.
+
+**Engine — `Core/` (don't put content here):**
+- **`Namespace.lua`** (loads first) — creates the `ns` sub-tables and `ns.Print`.
+- **`Util.lua`** (`ns.util`) — pure helpers, **zero** WoW API: `applyDefaults`, `asList`, `deepCopy`, `trim`, `slug`, `wrap`.
+- **`Api.lua`** (`ns.api`) — all version-sensitive WoW API behind `has`/`hasMethod` guards (group/roster shims).
+- **`Config.lua`** (`ns.Config`) — owns `PugHelperDB`: `DEFAULTS`, channel list, and the **only** typed accessors that touch the saved-vars table.
+- **`Content.lua`** (`ns.Content`) — the registry, the defaults+overrides merge (`Effective`), the editor mutators, `Validate`, `PruneNames`.
+- **`Chat.lua`** (`ns.Chat`) — `Substitute`, `ResolveChannel`, `SendLine`.
+- **`Slash.lua`** (`ns.Slash`) — `/pug` dispatch.
+- **`Boot.lua`** (loads last) — the `ADDON_LOADED` loader; wires the init order.
+
+**UI — `UI/` (`ns.UI`):** `Window.lua` (main frame, category list, object-pooled message pane, `Refresh`), `NamesPanel.lua` (Set Names overlay), `EditPanel.lua` (in-game callout editor).
+
+**Load order in `.toc` matters** (dependencies flow down): Namespace → Util → Api → Config → Content → Chat → UI/* → Slash → Content data files → Boot. Data files must load **after** `Core/Content.lua` (which defines `ns:RegisterInstance`); `Boot.lua` is always last.
 
 ## Key mechanics to preserve
 
-- **Token substitution:** `{KEY}` in a callout line is replaced with the configured name via `gsub("{(%w+)}", ...)`. Tokens must be alphanumeric (word chars only); keys come from `PugHelperRoles` in `Data.lua`.
-- **Chat splitting:** outgoing lines are split at word boundaries to a **240-char** limit before `SendChatMessage` — keep this when touching `SendLine`.
-- **Channel `AUTO`** resolves RAID → PARTY → SAY based on group state.
-- **Saved variables:** single global `PugHelperDB`, initialized on `ADDON_LOADED` and merged against `DEFAULTS` via the recursive `ApplyDefaults`. Add new persistent settings to `DEFAULTS`, not ad-hoc.
-- **UI uses object pooling** (`rowPool`, `headerPool`) — reuse pooled frames rather than creating new ones per render.
+- **Token substitution:** `{KEY}` in a callout line is replaced with the configured name in `Chat.Substitute` via `gsub("{(%w+)}", ...)`. Tokens must be alphanumeric (word chars only); keys come from `Content/Roles.lua`.
+- **Customization / overrides:** built-in callouts are **defaults** registered with `ns:RegisterInstance`. User edits live in `PugHelperDB.custom` keyed by `instanceId` and are layered over defaults by `Content.Effective`, which **never mutates** the registered defaults. Edit in-game via the **Edit** toolbar button (click a line to edit, right-click to delete, "+ Add line" per section); **Reset tab** clears one instance's overrides. Add new override semantics in `Content.lua`, not ad-hoc.
+- **Chat splitting:** outgoing lines are split at word boundaries to a **240-char** limit (`Config.CHAT_LIMIT`) before `SendChatMessage` — keep this when touching `Chat.SendLine` / `util.wrap`.
+- **Channel `AUTO`** resolves RAID → PARTY → SAY based on group state (`Chat.ResolveChannel`).
+- **Saved variables:** single global `PugHelperDB`, initialized in `Config.Init()` on `ADDON_LOADED` and merged against `DEFAULTS` via `util.applyDefaults`. Add new persistent settings to `DEFAULTS` in `Config.lua` and expose them through a `Config` accessor — don't read/write `PugHelperDB` elsewhere.
+- **UI uses object pooling** (`rowPool`, `headerPool` in `UI/Window.lua`) — reuse pooled frames rather than creating new ones per render.
 
 ## Slash commands
 
-`/pug` (alias `/pughelper`): `show`, `toggle`, `name TOKEN Value`, `names`, `channel`, `reset`.
+`/pug` (alias `/pughelper`): `show`, `toggle`, `edit`, `name TOKEN Value`, `names`, `channel`, `reset`.
 
 ## Conventions
 
-- Globals: PascalCase (`PugHelperDB`, `PugHelperRaids`, `PugHelperRoles`). Locals/functions: camelCase. Constants: `UPPER_SNAKE_CASE`. Keep engine functions `local` to avoid polluting the global namespace.
+- **Namespace, not globals:** only `PugHelperDB` and `SLASH_*` / `SlashCmdList` are global; everything else lives on `ns`. Modules are `ns.PascalCase` (`Config`, `Content`, `Chat`, `UI`, `Slash`) or lowercase utility namespaces (`ns.util`, `ns.api`). Start every file with `local _, ns = ...` (use `ADDON_NAME` only where needed, e.g. `Boot.lua`).
+- Locals/functions: camelCase. Constants: `UPPER_SNAKE_CASE`. Keep file-internal helpers `local`.
 
 ## Verifying changes
 
-There is no automated test framework. Verify in-game: save the files in this AddOns folder, then `/reload` (or relog) in WoW and exercise the change manually via `/pug`.
+There is no automated test framework. Verify in-game: save the files in this AddOns folder, then `/reload` (or relog) in WoW and exercise the change manually via `/pug` (including the **Edit** button for callout customization). Optionally lint with luacheck (config in `.luacheckrc`): `& "C:\Users\garneck\luacheck\luacheck.cmd" .`.

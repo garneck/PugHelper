@@ -2,9 +2,53 @@
 ## Title: PUG Helper
 ## Notes: Quick raid callouts and assignments for PUG raid leaders (TBC)
 ## Author: garneck
-## Version: 1.0
+## Version: 2.0
 ## SavedVariables: PugHelperDB
 ## IconTexture: Interface\Icons\INV_Misc_GroupLooking
 
-Data.lua
-Core.lua
+# Engine (load order matters: each layer depends on the ones above it)
+Core\Namespace.lua
+Core\Util.lua
+Core\Api.lua
+Core\Config.lua
+Core\Content.lua
+Core\Chat.lua
+
+# UI
+UI\Window.lua
+UI\NamesPanel.lua
+UI\EditPanel.lua
+
+# Commands
+Core\Slash.lua
+
+# Content (registers into ns.Content; must load after Core\Content.lua).
+# The order here is the order tabs appear in each category.
+Content\Roles.lua
+
+# Raids
+Content\Raids\Karazhan.lua
+Content\Raids\Gruuls-Lair.lua
+Content\Raids\Magtheridons-Lair.lua
+Content\Raids\Serpentshrine-Cavern.lua
+Content\Raids\The-Eye.lua
+
+# Heroics
+Content\Heroics\Hellfire-Ramparts.lua
+Content\Heroics\The-Blood-Furnace.lua
+Content\Heroics\The-Shattered-Halls.lua
+Content\Heroics\The-Slave-Pens.lua
+Content\Heroics\The-Underbog.lua
+Content\Heroics\The-Steamvault.lua
+Content\Heroics\Mana-Tombs.lua
+Content\Heroics\Auchenai-Crypts.lua
+Content\Heroics\Sethekk-Halls.lua
+Content\Heroics\Shadow-Labyrinth.lua
+Content\Heroics\Old-Hillsbrad-Foothills.lua
+Content\Heroics\The-Black-Morass.lua
+Content\Heroics\The-Mechanar.lua
+Content\Heroics\The-Botanica.lua
+Content\Heroics\The-Arcatraz.lua
+
+# Boot last: runs init on ADDON_LOADED once everything is registered
+Core\Boot.lua
