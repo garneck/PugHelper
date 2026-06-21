@@ -21,9 +21,10 @@
 local _, ns = ...
 local UI = ns.UI
 
-local STEP    = 30                -- minimum role row height (a single text line)
-local DD_W    = 100               -- dropdown selected-text width
-local LABEL_X = 22 + DD_W + 30    -- role label x: after the delete X + dropdown
+local STEP       = 30   -- minimum role row height (a single text line)
+local DD_W       = 100  -- dropdown selected-text width
+local LABEL_X    = 24   -- role label x: just right of the delete X (label is first)
+local DD_RESERVE = 165  -- right-side room reserved for the dropdown + edge margin
 
 -- Shared dropdown initializer. UIDropDownMenu_Initialize calls this with the
 -- dropdown frame each time the menu opens, so it reads the row's CURRENT token
@@ -91,23 +92,22 @@ local function AcquireRoleRow(panel, i)
     -- (whose clip boundary swallowed clicks placed there). Every role is
     -- deletable; how is decided by scope in UI.DeleteRoleRow.
     local remove = UI.Button(container, 18, 18, "X", function(self)
-        UI.DeleteRoleRow(self.scope, self.token)
+        UI.DeleteRoleRow(self.scope, self.token, self.label)
     end)
     remove:SetPoint("TOPLEFT", 2, -3)
     UI.Tooltip(remove, { { "Delete this role", 1, 0.6, 0.6 } })
 
-    local dd = CreateFrame("Frame", "PugHelperNameDD" .. i, container, "UIDropDownMenuTemplate")
-    dd:SetPoint("TOPLEFT", 22, -1)
-    UIDropDownMenu_SetWidth(dd, DD_W)
-    UIDropDownMenu_Initialize(dd, InitNameDropdown)
-
-    -- Wide, word-wrapping label so the {TOKEN} and full role name are NEVER
-    -- truncated: a long name wraps and the row grows to fit (see RebuildRoleRows).
+    -- "{TOKEN} Name" label comes FIRST (after the delete X); the dropdown sits to
+    -- its right. Wide and word-wrapping so the token and full name are NEVER
+    -- truncated; the exact width/x is set per-rebuild from the scroll width.
     local label = container:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    label:SetPoint("TOPLEFT", LABEL_X, -7)
     label:SetJustifyH("LEFT")
     label:SetJustifyV("TOP")
     label:SetWordWrap(true)
+
+    local dd = CreateFrame("Frame", "PugHelperNameDD" .. i, container, "UIDropDownMenuTemplate")
+    UIDropDownMenu_SetWidth(dd, DD_W)
+    UIDropDownMenu_Initialize(dd, InitNameDropdown)
 
     local row = { container = container, label = label, dd = dd, remove = remove }
     rows[i] = row
@@ -135,7 +135,10 @@ function UI.RebuildRoleRows()
 
     local width = panel.scrollChild:GetWidth()
     if not width or width < 1 then width = 600 end
-    local labelW = math.max(80, width - LABEL_X - 12)
+    -- Label fills from LABEL_X up to the dropdown column on the right; the
+    -- dropdown follows it, inset from the scroll edge so its click never clips.
+    local labelW = math.max(120, width - LABEL_X - DD_RESERVE)
+    local ddX    = LABEL_X + labelW + 8
 
     local y = -2
     for i, role in ipairs(roles) do
@@ -143,15 +146,20 @@ function UI.RebuildRoleRows()
 
         -- Token first (gold), then the full name; the label wraps so nothing is
         -- ever cut off.
+        row.label:ClearAllPoints()
+        row.label:SetPoint("TOPLEFT", LABEL_X, -7)
         row.label:SetWidth(labelW)
         row.label:SetText("|cffffd200{" .. role.key .. "}|r " .. (role.label or role.key))
 
+        row.dd:ClearAllPoints()
+        row.dd:SetPoint("TOPLEFT", ddX, -1)
         row.dd.token = role.key
         UIDropDownMenu_SetText(row.dd, ns.Config.GetName(role.key) or "")
 
         -- Every role is deletable; the row carries how (see UI.DeleteRoleRow).
         row.remove.scope = role.scope
         row.remove.token = role.key
+        row.remove.label = role.label
 
         local h = math.max(STEP, row.label:GetStringHeight() + 12)
         row.container:ClearAllPoints()
@@ -168,19 +176,30 @@ function UI.RebuildRoleRows()
     panel.scrollChild:SetHeight(-y + 6)
 end
 
--- Delete the role behind a row's X button: a per-raid custom role is removed, a
--- global custom role is removed everywhere, and a built-in is hidden on the
--- current tab (reversible via Reset). selId is read fresh so it tracks the tab.
-function UI.DeleteRoleRow(scope, token)
-    local selId = ns.Config.SelectedInstance()
+-- Delete the role behind a row's X button (confirmed first): a per-raid custom
+-- role is removed, a global custom role is removed everywhere, and a built-in is
+-- hidden on the current tab (reversible via Reset raid). selId is read fresh so
+-- it tracks the tab.
+function UI.DeleteRoleRow(scope, token, label)
+    local selId    = ns.Config.SelectedInstance()
+    local namePart = (label and label ~= "" and label:upper() ~= token:upper())
+        and (" (" .. label .. ")") or ""
+    local who = "|cffffd200{" .. token .. "}|r" .. namePart
+
+    local msg, acceptText, action
     if scope == "instance" then
-        ns.Content.RemoveCustomRole(selId, token)
+        msg, acceptText = "Delete the role " .. who .. " from this raid?", "Delete"
+        action = function() ns.Content.RemoveCustomRole(selId, token) end
     elseif scope == "global" then
-        ns.Content.RemoveCustomRole(nil, token)
+        msg, acceptText = "Delete the global role " .. who .. " from every tab?", "Delete"
+        action = function() ns.Content.RemoveCustomRole(nil, token) end
     else
-        ns.Content.HideRole(selId, token)
+        msg, acceptText = "Hide the built-in role " .. who
+            .. " on this raid? You can restore it with Reset raid.", "Hide"
+        action = function() ns.Content.HideRole(selId, token) end
     end
-    UI.RebuildRoleRows()
+
+    UI.Confirm(msg, function() action(); UI.RebuildRoleRows() end, acceptText)
 end
 
 -- ---------------------------------------------------------------------------
