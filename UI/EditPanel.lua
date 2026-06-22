@@ -189,6 +189,19 @@ end
 -- ---------------------------------------------------------------------------
 --  Toolbar controls + edit-mode toggle
 -- ---------------------------------------------------------------------------
+-- Show "Reset callouts" whenever it has something to undo: in edit mode, or any
+-- time the selected tab is customized -- so the always-on "(customized)" badge has
+-- a reachable remedy without first entering Edit mode. It always confirms first.
+function UI.UpdateResetButton()
+    if not UI.resetBtn then return end
+    local id = ns.Config.SelectedInstance()
+    if UI.editMode or (id and ns.Content.HasCustom(id)) then
+        UI.resetBtn:Show()
+    else
+        UI.resetBtn:Hide()
+    end
+end
+
 function UI.ToggleEdit()
     UI.editMode = not UI.editMode
     if UI.editBtn then
@@ -201,13 +214,11 @@ function UI.ToggleEdit()
     if UI.editTint then
         if UI.editMode then UI.editTint:Show() else UI.editTint:Hide() end
     end
-    if UI.resetBtn then
-        if UI.editMode then UI.resetBtn:Show() else UI.resetBtn:Hide() end
-    end
-    if UI.hint then
-        UI.hint:SetText(UI.editMode
-            and "Edit mode: drag lines/sections to reorder; click to edit, right-click to delete, Ctrl-click to duplicate."
-            or  "Click a line to send it to the channel shown top-left. {TOKENS} like {MT} fill in from Set Names.")
+    UI.UpdateResetButton()
+    -- Edit mode owns its own hint; leaving it lets UI.Refresh (below) restore the
+    -- context hint, which adapts to whether the tab has any callout lines yet.
+    if UI.hint and UI.editMode then
+        UI.hint:SetText("Edit mode: drag lines/sections to reorder; click to edit, right-click to delete, Ctrl-click to duplicate.")
     end
     -- Once-ever chat tip the first time Edit is turned on, since the gestures are
     -- otherwise only in hover tooltips.
@@ -223,8 +234,8 @@ function UI.BuildEditControls(parent, after)
     local editBtn = UI.Button(parent, 90, UI.BUTTON_H, "Edit: OFF", UI.ToggleEdit)
     editBtn:SetPoint("LEFT", after, "RIGHT", 8, 0)
     UI.Tooltip(editBtn, {
-        { "Customize callouts", 1, 1, 1 },
-        { "Edit/add/delete lines and rename, add, or remove sections. Changes are saved per tab.", 0.8, 0.8, 0.8, true },
+        { "Write & customize callouts", 1, 1, 1 },
+        { "These tabs ship blank - turn this on to add your callout lines, then edit, rename, reorder, or delete them. Saved per tab.", 0.8, 0.8, 0.8, true },
     })
     UI.editBtn = editBtn
 
@@ -239,7 +250,7 @@ function UI.BuildEditControls(parent, after)
             function()
                 ns.Content.ResetInstance(id)
                 UI.Refresh()
-            end, "Reset tab")
+            end, "Reset callouts")
     end)
     resetBtn:SetPoint("LEFT", editBtn, "RIGHT", 8, 0)
     UI.Tooltip(resetBtn, {

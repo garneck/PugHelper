@@ -47,10 +47,14 @@ function Chat.ResolveChannel()
 end
 
 -- Send a line, substituting tokens and splitting on word boundaries to the
--- chat length limit before each SendChatMessage.
+-- chat length limit before each SendChatMessage. Returns the number of chat
+-- lines actually sent (0 for empty/whitespace input), so the caller only shows
+-- the post-send confirmation when something really went out.
 function Chat.SendLine(text)
     local channel = Chat.ResolveChannel()
-    for _, chunk in ipairs(util.wrap(Chat.Substitute(text), Config.CHAT_LIMIT)) do
+    local chunks = util.wrap(Chat.Substitute(text), Config.CHAT_LIMIT)
+    for _, chunk in ipairs(chunks) do
         SendChatMessage(chunk, channel)
     end
+    return #chunks
 end

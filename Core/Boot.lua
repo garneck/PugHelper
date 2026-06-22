@@ -26,7 +26,10 @@ loader:SetScript("OnEvent", function(self, event, name)
     -- at login. Guarded: a no-op if the build helper or Minimap global is absent.
     if ns.UI.BuildMinimapButton then ns.UI.BuildMinimapButton() end
 
-    ns.Print("loaded. Type /pug to open.")
+    -- Name both entry points (slash + the eagerly-built minimap button), dropping
+    -- the button mention when the user has hidden it so the line stays accurate.
+    local entry = ns.Config.MinimapHidden() and "Type /pug" or "Type /pug or click the minimap button"
+    ns.Print("loaded. " .. entry .. " to open.")
 
     self:UnregisterEvent("ADDON_LOADED")
 end)

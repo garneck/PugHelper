@@ -97,6 +97,37 @@ function UI.SetLineDropTarget(row, targetIndex)
     ind:Show()
 end
 
+-- ---------------------------------------------------------------------------
+--  Sending a callout (the click is the entire broadcast surface)
+-- ---------------------------------------------------------------------------
+-- Broadcast a row's callout and flash it green on success. A short per-row
+-- cooldown swallows an accidental double-click so a RAID_WARNING can't fire
+-- twice; it only latches when there's a timer to release it (no C_Timer on this
+-- build -> never latch, so sends always work).
+local function broadcastRow(row)
+    if row.sendCooldown then return end
+    if ns.Chat.SendLine(row.fullText) > 0 then
+        UI.FlashRow(row)
+        if ns.api.After(0.4, function() row.sendCooldown = nil end) then
+            row.sendCooldown = true
+        end
+    end
+end
+
+-- A line that still has an unset {TOKEN} would broadcast the literal "{MT} ..."
+-- to the raid; gate it behind a confirm (showing where it lands and the exact
+-- text, unset tokens in orange) so a click mid-pull can't leak a broken callout.
+-- A fully-resolved line sends straight through on a single click.
+local function sendRow(row)
+    if not row.unresolved then return broadcastRow(row) end
+    local resolved = ns.Chat.Substitute(row.fullText)
+    if #resolved > 150 then resolved = resolved:sub(1, 150) .. "..." end
+    resolved = resolved:gsub("{(%w+)}", "|cffff8800{%1}|r")
+    UI.Confirm("Unset role(s): " .. row.unresolved .. "\n\nSend to "
+        .. ns.Chat.ResolveChannel() .. " exactly as:\n\n" .. resolved,
+        function() broadcastRow(row) end, "Send anyway")
+end
+
 local function AcquireRow()
     rowCursor = rowCursor + 1
     local b = rowPool[rowCursor]
@@ -147,8 +178,7 @@ local function AcquireRow()
                 UI.OpenLineEditor(self.instanceId, self.sectionIndex, self.lineIndex, self.fullText)
             end
         elseif self.fullText and button == "LeftButton" then
-            ns.Chat.SendLine(self.fullText)
-            UI.FlashRow(self)
+            sendRow(self)
         end
     end)
     -- Drag a line to reorder it within its section (mirrors section-title drag).
@@ -202,7 +232,7 @@ local function AcquireRow()
                 GameTooltip:AddLine("Click to add a new line", 0.6, 1, 0.6)
             else
                 GameTooltip:AddLine("Click to edit  -  Right-click to delete", 0.6, 0.8, 1)
-                GameTooltip:AddLine("Drag to reorder  -  Ctrl-click to duplicate", 0.6, 0.8, 1)
+                GameTooltip:AddLine("Drag to reorder within section  -  Ctrl-click to duplicate", 0.6, 0.8, 1)
             end
             GameTooltip:Show()
         elseif self.fullText then
@@ -319,6 +349,7 @@ local function PrepRow(id)
     row.addRow, row.addSection = nil, nil
     row.fullText, row.lineIndex, row.sectionIndex = nil, nil, nil
     row.unresolved, row.lineCount = nil, nil
+    row.sendCooldown = nil
     row.label:SetAlpha(1)
     row:EnableMouse(true)
     row.instanceId = id
@@ -385,6 +416,7 @@ function UI.Refresh(preserveEditor)
 
     local width = sc:GetWidth()
     local y = -4
+    local totalLines = 0
     for si, section in ipairs(sections) do
         local h = AcquireHeader()
         h:ClearAllPoints()
@@ -400,6 +432,7 @@ function UI.Refresh(preserveEditor)
         y = y - HEADER_H
 
         local lines = ns.util.asList(section.lines)
+        totalLines = totalLines + #lines
         for li, line in ipairs(lines) do
             local row = PrepRow(id)
             row.fullText     = line
@@ -457,6 +490,19 @@ function UI.Refresh(preserveEditor)
         y = y - LayoutRow(addSec, width, y, "+ Add section")
         UI.addSectionRow = addSec
     end
+
+    -- Normal-mode hint adapts to whether this tab has any callouts yet: every tab
+    -- ships blank (content is a framework), so "click a line to send it" would
+    -- point at nothing on a fresh tab. Edit mode owns its own hint (ToggleEdit).
+    if UI.hint and not UI.editMode then
+        if totalLines == 0 then
+            UI.hint:SetText("This tab ships blank - add your own callouts: turn on Edit (top toolbar), then \"+ Add line\". Click a line to broadcast it.")
+        else
+            UI.hint:SetText("Click a line to send it to the channel shown top-left. {TOKENS} like {MT} fill in from Set Names.")
+        end
+    end
+    -- The "(customized)" badge is always visible; keep its Reset remedy reachable.
+    if UI.UpdateResetButton then UI.UpdateResetButton() end
 
     -- Keep the current scroll position across edit-driven refreshes (clamped to
     -- the new range); SelectInstance resets to the top when switching tabs.
@@ -676,7 +722,7 @@ function UI.BuildUI()
         else
             GameTooltip:AddLine("Sending to " .. res .. " right now.", 0.8, 0.8, 0.8, true)
         end
-        GameTooltip:AddLine("AUTO picks Raid > Party > Say. RAID_WARNING only delivers if you're raid lead/assist.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("AUTO picks RAID > PARTY > SAY. RAID_WARNING only delivers if you're raid lead/assist.", 0.8, 0.8, 0.8, true)
         GameTooltip:AddLine("Left-click: next channel.  Right-click: previous.", 0.6, 0.8, 1)
         GameTooltip:Show()
     end)
@@ -763,7 +809,7 @@ function UI.BuildUI()
     -- click EDITS instead of sends) is unmistakable beyond the small EDITING badge.
     local editTint = scroll:CreateTexture(nil, "BACKGROUND")
     editTint:SetAllPoints(scroll)
-    editTint:SetColorTexture(1, 0.6, 0.1, 0.07)
+    editTint:SetColorTexture(1, 0.6, 0.1, 0.12)
     editTint:Hide()
     UI.editTint = editTint
 
@@ -787,6 +833,10 @@ function UI.Open()
     if not UI.frame then UI.BuildUI() end
     if not UI.frame:IsShown() then
         UI.frame:Show()
+        -- Drop any stale left-list search filter so reopening never lands on a
+        -- near-empty tab list that reads as lost content (fires OnTextChanged,
+        -- which re-shows every tab and the "Search..." hint).
+        if UI.searchBox then UI.searchBox:SetText("") end
         UI.SelectInstance(ns.Content.ResolveSelectedInstance())
     end
 end

@@ -132,11 +132,11 @@ function UI.RebuildRoleRows()
         end
     end
 
-    -- Name the current tab so "This raid" scope is unambiguous (the panel covers
-    -- the tab list while it's open).
+    -- Name the current tab so the "This tab" scope is unambiguous (the panel
+    -- covers the tab list while it's open).
     if panel.addHeader then
-        local raid = ns.Content.InstanceName(selId, "this raid")
-        panel.addHeader:SetText("Add a custom role  |cff808080(This raid = " .. raid .. ")|r")
+        local tab = ns.Content.InstanceName(selId, "this tab")
+        panel.addHeader:SetText("Add a custom role  |cff808080(This tab = " .. tab .. ")|r")
     end
 
     local width = panel.scrollChild:GetWidth()
@@ -155,7 +155,6 @@ function UI.RebuildRoleRows()
         row.label:ClearAllPoints()
         row.label:SetPoint("TOPLEFT", LABEL_X, -7)
         row.label:SetWidth(labelW)
-        row.label:SetText("|cffffd200{" .. role.key .. "}|r " .. (role.label or role.key))
 
         row.dd:ClearAllPoints()
         row.dd:SetPoint("TOPLEFT", ddX, -1)
@@ -165,13 +164,17 @@ function UI.RebuildRoleRows()
         -- reddish when the assigned player isn't in the current group (only while
         -- actually grouped, so pre-invite name entry isn't flagged as wrong).
         UIDropDownMenu_SetText(row.dd, assigned ~= "" and assigned or "|cff808080(not set)|r")
+        local labelText = "|cffffd200{" .. role.key .. "}|r " .. (role.label or role.key)
         if assigned == "" then
             row.label:SetTextColor(1, 0.6, 0.1)
         elseif rosterN > 1 and not roster[assigned] then
             row.label:SetTextColor(1, 0.5, 0.5)
+            -- Back the reddish tint with words so the stale state isn't color-only.
+            labelText = labelText .. "  |cffff8080(assigned player not in group)|r"
         else
             row.label:SetTextColor(1, 1, 1)
         end
+        row.label:SetText(labelText)
 
         -- Every role is deletable; the row carries how (see UI.DeleteRoleRow).
         row.remove.scope = role.scope
@@ -195,7 +198,7 @@ end
 
 -- Delete the role behind a row's X button (confirmed first): a per-raid custom
 -- role is removed, a global custom role is removed everywhere, and a built-in is
--- hidden on the current tab (reversible via Reset raid). selId is read fresh so
+-- hidden on the current tab (reversible via Reset roles). selId is read fresh so
 -- it tracks the tab.
 function UI.DeleteRoleRow(scope, token, label)
     local selId    = ns.Config.SelectedInstance()
@@ -205,14 +208,14 @@ function UI.DeleteRoleRow(scope, token, label)
 
     local msg, acceptText, action
     if scope == "instance" then
-        msg, acceptText = "Delete the role " .. who .. " from this raid?", "Delete"
+        msg, acceptText = "Delete the role " .. who .. " from this tab?", "Delete"
         action = function() ns.Content.RemoveCustomRole(selId, token) end
     elseif scope == "global" then
         msg, acceptText = "Delete the global role " .. who .. " from every tab?", "Delete"
         action = function() ns.Content.RemoveCustomRole(nil, token) end
     else
         msg, acceptText = "Hide the built-in role " .. who
-            .. " on this raid? You can restore it with Reset raid.", "Hide"
+            .. " on this tab? You can restore it with the Reset roles button below.", "Hide"
         action = function() ns.Content.HideRole(selId, token) end
     end
 
@@ -243,16 +246,17 @@ local function BuildAddRow(panel)
 
     local tokenBox = UI.MakeInput(panel, 80, 16, submit)
     tokenBox:SetPoint("TOPLEFT", 256, -78)
-    -- Tab from the name to the token field for quick entry.
+    -- Tab cycles between the Name and Token fields for quick entry.
     nameBox:SetScript("OnTabPressed", function() tokenBox:SetFocus() end)
+    tokenBox:SetScript("OnTabPressed", function() nameBox:SetFocus() end)
 
-    -- Scope toggle: a custom role is either Global (every tab) or This raid only.
-    -- Defaults to This raid, the clutter-reducing case the user asked for.
+    -- Scope toggle: a custom role is either Global (every tab) or This tab only.
+    -- Defaults to This tab, the clutter-reducing case the user asked for.
     panel.addScope = "instance"
     local scopeBtn = UI.Button(panel, 116, UI.BUTTON_H, nil, nil)
     scopeBtn:SetPoint("TOPLEFT", 348, -78)
     local function updateScope()
-        scopeBtn:SetText("Scope: " .. (panel.addScope == "instance" and "This raid" or "Global"))
+        scopeBtn:SetText("Scope: " .. (panel.addScope == "instance" and "This tab" or "Global"))
     end
     scopeBtn:SetScript("OnClick", function()
         panel.addScope = (panel.addScope == "instance") and "global" or "instance"
@@ -261,7 +265,7 @@ local function BuildAddRow(panel)
     updateScope()
     UI.Tooltip(scopeBtn, {
         { "Where this role shows", 1, 1, 1 },
-        { "This raid: only on the current tab. Global: on every tab.", 0.8, 0.8, 0.8, true },
+        { "This tab: only the current tab. Global: every tab.", 0.8, 0.8, 0.8, true },
     })
 
     local addBtn = UI.Button(panel, 56, UI.BUTTON_H, "Add", function() panel.doAddRole() end)
@@ -337,15 +341,15 @@ function UI.BuildNamesPanel(parent)
     -- Reset roles (confirmed) at the bottom-left: separate local / global scopes.
     local resetRaid = UI.Button(panel, 96, UI.BUTTON_H, "Reset roles", function()
         local id   = ns.Config.SelectedInstance()
-        local raid = ns.Content.InstanceName(id, "this raid")
-        UI.Confirm("Restore the built-in roles for " .. raid
+        local tab  = ns.Content.InstanceName(id, "this tab")
+        UI.Confirm("Restore the built-in roles for " .. tab
             .. " and remove the custom roles you added to it?",
             function() ns.Content.ResetRoles(id, "instance"); UI.RebuildRoleRows() end,
             "Reset roles")
     end)
     resetRaid:SetPoint("BOTTOMLEFT", 14, 12)
     UI.Tooltip(resetRaid, {
-        { "Reset this raid's roles", 1, 1, 1 },
+        { "Reset this tab's roles", 1, 1, 1 },
         { "Drops roles you added to this tab and un-hides its built-ins.", 0.8, 0.8, 0.8, true },
     })
 
@@ -369,7 +373,7 @@ function UI.BuildNamesPanel(parent)
     local clear = UI.Button(panel, 96, UI.BUTTON_H, "Clear names", function()
         -- Confirmed like every other destructive action - it wipes the exact data
         -- the user came here to enter.
-        UI.Confirm("Clear every player name assigned here? The roles stay.", function()
+        UI.Confirm("Clear the player names shown on this tab? The roles stay.", function()
             for _, row in ipairs(panel.rows) do
                 if row.container:IsShown() and row.dd.token then
                     ns.Config.SetName(row.dd.token, "")
