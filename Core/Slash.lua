@@ -54,6 +54,10 @@ function Slash.Handle(msg)
             ns.UI.UpdateChannelButton()
             ns.Print("Channel set to " .. c)
         else
+            -- No/invalid argument: report the current channel (and where it lands
+            -- right now) before listing the valid values.
+            local cfg, res = ns.Config.Channel(), ns.Chat.ResolveChannel()
+            ns.Print("Channel: " .. cfg .. (res ~= cfg and (" (sending to " .. res .. ")") or ""))
             ns.Print("Channels: " .. table.concat(ns.Config.CHANNEL_NAMES, ", "))
         end
 
@@ -69,13 +73,14 @@ function Slash.Handle(msg)
 
     else
         ns.Print("Commands:")
-        ns.Print("  /pug                 - open/close the window")
+        ns.Print("  /pug                 - open/close the window (or click the minimap button)")
         ns.Print("  /pug edit            - toggle in-game callout editing")
-        ns.Print("  /pug name MT Name    - set a role name")
+        ns.Print("  /pug name MT Name    - assign a player to a {TOKEN} (letters/numbers only)")
         ns.Print("  /pug names           - list role names")
-        ns.Print("  /pug channel RAID    - set output channel")
+        ns.Print("  /pug channel RAID    - set channel (AUTO/RAID/RAID_WARNING/PARTY/SAY/GUILD)")
         ns.Print("  /pug minimap         - show/hide the minimap button")
         ns.Print("  /pug reset           - reset window position")
+        ns.Print("Tip: open Set Names to assign roles, then click a callout line to send it.")
     end
 end
 

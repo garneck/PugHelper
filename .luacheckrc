@@ -52,6 +52,13 @@ read_globals = {
     "GetNumSubgroupMembers",
     "GetRaidRosterInfo",
     "UnitName",
+    -- Raid lead/assist (RAID_WARNING capability; old + modern names, all guarded)
+    "IsRaidLeader",
+    "IsRaidOfficer",
+    "UnitIsGroupLeader",
+    "UnitIsGroupAssistant",
+    -- Timers
+    "C_Timer",            -- C_Timer.After for the post-send row flash (guarded)
 }
 
 -- Long callout strings in Data.lua are intentional; don't flag line length.

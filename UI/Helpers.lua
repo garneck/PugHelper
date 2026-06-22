@@ -98,6 +98,12 @@ function UI.MakeModal(frame, anchor)
     blocker:EnableMouse(true)
     blocker:EnableMouseWheel(true)
     blocker:SetScript("OnMouseWheel", function() end)
+    -- A faint dim over the blocked area, so the lock is VISIBLE: the user can see
+    -- the window behind is inactive instead of clicking it and wondering why
+    -- nothing happens. The live dialog sits above the dim (raised on show).
+    local dim = blocker:CreateTexture(nil, "BACKGROUND")
+    dim:SetAllPoints(blocker)
+    dim:SetColorTexture(0, 0, 0, 0.45)
     blocker:Hide()
     frame:SetFrameLevel(blocker:GetFrameLevel() + 10)
     frame:HookScript("OnShow", function(self) blocker:Show(); blocker:Raise(); self:Raise() end)
@@ -116,11 +122,15 @@ local confirmDialog
 function UI.Confirm(message, onAccept, acceptText)
     local d = confirmDialog
     if not d then
-        d = CreateFrame("Frame", nil, UIParent)
+        -- Named + registered for Escape so Escape over the confirm cancels IT,
+        -- rather than falling through to close the whole window. Registered after
+        -- PugHelperFrame so it's the one Escape acts on while shown.
+        d = CreateFrame("Frame", "PugHelperConfirmDialog", UIParent)
         d:SetFrameStrata("FULLSCREEN_DIALOG")
         d:SetSize(380, 150)
         d:SetPoint("CENTER")
         d:EnableMouse(true)
+        table.insert(UISpecialFrames, "PugHelperConfirmDialog")
         UI.Background(d, 0.06, 0.06, 0.09, 0.98)
         UI.AddBorder(d, 0.40, 0.40, 0.50, 1)
         UI.MakeModal(d)

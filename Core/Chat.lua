@@ -40,6 +40,9 @@ function Chat.ResolveChannel()
     if requires == "raid"  and not api.InRaid()  then return bestAvailable() end
     if requires == "group" and not api.InGroup() then return "SAY" end
     if requires == "guild" and not api.InGuild() then return bestAvailable() end
+    -- In a raid but not lead/assist: RAID_WARNING is silently dropped by the
+    -- client, so deliver it as a normal RAID message instead of nothing.
+    if ch == "RAID_WARNING" and not api.CanRaidWarn() then return "RAID" end
     return ch
 end
 

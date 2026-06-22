@@ -201,15 +201,15 @@ end
 -- only appears on that raid's tab. The token is sanitized to letters/numbers and
 -- uppercased so it matches the {%w+} substitution pattern. Returns the stored key
 -- on success, or nil (with a chat warning) on an empty or duplicate token.
+-- On failure returns nil plus a short reason string, so the caller can surface it
+-- in the panel (the chat log is hidden behind the Set Names overlay).
 function Content.AddCustomRole(instanceId, name, token)
     token = tostring(token or ""):gsub("%W", ""):upper()
     if token == "" then
-        ns.Print("|cffff5555Role:|r token must contain at least one letter or number.")
-        return nil
+        return nil, "Enter a token (letters or numbers only)."
     end
     if tokenTaken(instanceId, token) then
-        ns.Print("|cffff5555Role:|r a role with token {" .. token .. "} already exists here.")
-        return nil
+        return nil, "Token {" .. token .. "} is already used here."
     end
     name = util.trim(name)
     if name == "" then name = token end

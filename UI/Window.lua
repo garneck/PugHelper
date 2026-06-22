@@ -148,6 +148,7 @@ local function AcquireRow()
             end
         elseif self.fullText and button == "LeftButton" then
             ns.Chat.SendLine(self.fullText)
+            UI.FlashRow(self)
         end
     end)
     -- Drag a line to reorder it within its section (mirrors section-title drag).
@@ -324,6 +325,24 @@ local function PrepRow(id)
     return row
 end
 
+-- A line's resting bullet color: amber if it still has an unset {TOKEN}, else blue.
+local function BulletColor(row)
+    if row.unresolved then return 1, 0.6, 0.1 end
+    return 0.5, 0.7, 1.0
+end
+
+-- Briefly flash a row's bullet green after a send, so a click that broadcast a
+-- line gives in-window confirmation (the chat frame is easy to miss mid-pull).
+-- Falls back to no flash (immediate reset) if there's no timer to undo it.
+function UI.FlashRow(row)
+    local b = row and row.bullet
+    if not b then return end
+    b:SetVertexColor(0.3, 1.0, 0.3)
+    if not ns.api.After(0.4, function() b:SetVertexColor(BulletColor(row)) end) then
+        b:SetVertexColor(BulletColor(row))
+    end
+end
+
 -- Rebuild the right-hand pane for the currently selected instance (effective
 -- content). In edit mode each section gets a trailing "+ Add line" row, section
 -- headers become clickable (rename/delete), and an "+ Add section" row is added.
@@ -391,17 +410,20 @@ function UI.Refresh(preserveEditor)
             -- After substitution, any remaining {TOKEN} is an unset name that
             -- would be sent literally: flag the bullet amber and remember which.
             local shown = ns.Chat.Substitute(line)
-            local unset
+            local unset, display = nil, shown
             for tok in shown:gmatch("{(%w+)}") do
                 unset = unset and (unset .. ", {" .. tok .. "}") or ("{" .. tok .. "}")
             end
             row.unresolved = unset
             if unset then
                 row.bullet:SetVertexColor(1, 0.6, 0.1)
+                -- Also tint the unfilled {TOKEN}s in the line text orange, so the
+                -- "this will send a literal {MT}" warning isn't a color-only bullet.
+                display = shown:gsub("{(%w+)}", "|cffff8800{%1}|r")
             else
                 row.bullet:SetVertexColor(0.5, 0.7, 1.0)
             end
-            y = y - LayoutRow(row, width, y, shown)
+            y = y - LayoutRow(row, width, y, display)
         end
 
         -- Empty boss in normal mode: a dim, non-clickable nudge toward Edit (edit
@@ -411,7 +433,7 @@ function UI.Refresh(preserveEditor)
             empty.bullet:Hide()
             empty:EnableMouse(false)
             empty.label:SetTextColor(0.5, 0.5, 0.5)
-            y = y - LayoutRow(empty, width, y, "(no callouts yet - turn on Edit to add some)")
+            y = y - LayoutRow(empty, width, y, "(no callouts here yet - click Edit above, then \"+ Add line\")")
         end
 
         if UI.editMode then
@@ -467,10 +489,16 @@ function UI.UpdateChannelButton()
     if not UI.channelBtn then return end
     local cfg = ns.Config.Channel()
     local res = ns.Chat.ResolveChannel()
-    local txt = "Channel: " .. cfg
-    if res ~= cfg then
+    local loud = (res == "SAY" or res == "GUILD")   -- public / off-raid: warn
+    local txt
+    if loud then
+        -- Whole label red so a callout pointed at SAY/GUILD is obvious at a glance.
+        txt = "|cffff6060Channel: " .. cfg .. (res ~= cfg and (" (now: " .. res .. ")") or "") .. "|r"
+    elseif res ~= cfg then
         local code = (cfg == "AUTO") and "ff88dd88" or "ffffaa33"
-        txt = txt .. " |c" .. code .. "> " .. res .. "|r"
+        txt = "Channel: " .. cfg .. " |c" .. code .. "(now: " .. res .. ")|r"
+    else
+        txt = "Channel: " .. cfg
     end
     UI.channelBtn:SetText(txt)
 end
@@ -631,8 +659,10 @@ function UI.BuildUI()
     close:SetScript("OnClick", function() mainFrame:Hide() end)
 
     -- toolbar: channel + names (+ edit controls from EditPanel)
-    local channelBtn = UI.Button(mainFrame, 170, UI.BUTTON_H, nil, function()
-        ns.Config.CycleChannel()
+    local channelBtn = UI.Button(mainFrame, 210, UI.BUTTON_H, nil, nil)
+    channelBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    channelBtn:SetScript("OnClick", function(_, button)
+        ns.Config.CycleChannel(button == "RightButton")   -- right-click steps back
         UI.UpdateChannelButton()
     end)
     channelBtn:SetPoint("TOPLEFT", 10, -32)
@@ -647,7 +677,7 @@ function UI.BuildUI()
             GameTooltip:AddLine("Sending to " .. res .. " right now.", 0.8, 0.8, 0.8, true)
         end
         GameTooltip:AddLine("AUTO picks Raid > Party > Say. RAID_WARNING only delivers if you're raid lead/assist.", 0.8, 0.8, 0.8, true)
-        GameTooltip:AddLine("Click to change.", 0.6, 0.8, 1)
+        GameTooltip:AddLine("Left-click: next channel.  Right-click: previous.", 0.6, 0.8, 1)
         GameTooltip:Show()
     end)
     channelBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -717,7 +747,7 @@ function UI.BuildUI()
 
     local hint = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", contentHeader, "BOTTOMLEFT", 0, -2)
-    hint:SetText("Click a line to send it. {TOKENS} like {MT} fill in from Set Names.")
+    hint:SetText("Click a line to send it to the channel shown top-left. {TOKENS} like {MT} fill in from Set Names.")
     UI.hint = hint
 
     local scroll = CreateFrame("ScrollFrame", "PugHelperScroll", mainFrame, "UIPanelScrollFrameTemplate")
@@ -728,6 +758,14 @@ function UI.BuildUI()
     UI.scrollContent:SetWidth(440)
     UI.scrollContent:SetHeight(10)
     scroll:SetScrollChild(UI.scrollContent)
+
+    -- Faint amber wash over the message pane while editing, so edit mode (where a
+    -- click EDITS instead of sends) is unmistakable beyond the small EDITING badge.
+    local editTint = scroll:CreateTexture(nil, "BACKGROUND")
+    editTint:SetAllPoints(scroll)
+    editTint:SetColorTexture(1, 0.6, 0.1, 0.07)
+    editTint:Hide()
+    UI.editTint = editTint
 
     scroll:SetScript("OnSizeChanged", function(_, w)
         if w and w > 1 then

@@ -26,6 +26,9 @@ local DEFAULTS = {
     customRoles = { global = {}, byInstance = {}, hidden = {} },
     -- Minimap launcher button: angle (degrees) around the ring + a hidden flag.
     minimap = { angle = 220, hide = false },
+    -- One-time UI tips already shown (so they print once, ever). e.g. the edit-mode
+    -- gesture tip on first entering Edit.
+    editTipShown = false,
 }
 
 -- Output channels in cycle order, defined in ONE place. `requires` is the group
@@ -80,12 +83,14 @@ function Config.SetChannel(name)
     return false
 end
 
--- Advance to the next channel in cycle order; returns the new channel name.
-function Config.CycleChannel()
+-- Step the channel one position; `back` cycles to the previous (right-click) so a
+-- single overshoot is one click to recover, instead of a full loop around. Routes
+-- the write through SetChannel so the PugHelperDB nil-guard + validation live in
+-- one place (every stepped name is valid, so this always sets). Returns the name.
+function Config.CycleChannel(back)
+    local n = #Config.CHANNEL_NAMES
     local idx = Config.CHANNEL_INDEX[Config.Channel()] or 1
-    idx = (idx % #Config.CHANNEL_NAMES) + 1
-    -- Route the write through SetChannel so the PugHelperDB nil-guard + validation
-    -- live in one place (every cycled name is valid, so this always sets).
+    idx = back and ((idx - 2) % n) + 1 or (idx % n) + 1
     Config.SetChannel(Config.CHANNEL_NAMES[idx])
     return Config.Channel()
 end
@@ -195,4 +200,15 @@ end
 
 function Config.SetMinimapHidden(hide)
     Config.Minimap().hide = hide and true or false
+end
+
+-- ---------------------------------------------------------------------------
+--  One-time tips
+-- ---------------------------------------------------------------------------
+function Config.EditTipShown()
+    return PugHelperDB and PugHelperDB.editTipShown and true or false
+end
+
+function Config.SetEditTipShown(shown)
+    if PugHelperDB then PugHelperDB.editTipShown = shown and true or false end
 end

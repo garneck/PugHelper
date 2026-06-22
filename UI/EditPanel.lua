@@ -43,8 +43,9 @@ local function BuildPopup()
     boxBg:SetColorTexture(0, 0, 0, 0.5)
     p.boxBg = boxBg
 
+    -- Single-line: a callout IS one chat line (newlines get collapsed anyway), so
+    -- Enter saves (no stray newline) and the box matches the single-line inputs.
     local edit = CreateFrame("EditBox", nil, p)
-    edit:SetMultiLine(true)
     edit:SetAutoFocus(false)
     edit:SetFontObject("ChatFontNormal")
     edit:SetMaxLetters(500)
@@ -53,6 +54,10 @@ local function BuildPopup()
     edit:SetPoint("TOPLEFT", boxBg, "TOPLEFT", 2, -2)
     edit:SetPoint("BOTTOMRIGHT", boxBg, "BOTTOMRIGHT", -2, 2)
     edit:SetScript("OnEscapePressed", function() p:Hide() end)
+    edit:SetScript("OnEnterPressed", function(self)
+        if p.onSave then p.onSave(self:GetText()) end
+        p:Hide()
+    end)
     p.edit = edit
 
     -- Live preview of the resolved callout (tokens filled from Set Names; any
@@ -193,13 +198,22 @@ function UI.ToggleEdit()
     if UI.editTag then
         if UI.editMode then UI.editTag:Show() else UI.editTag:Hide() end
     end
+    if UI.editTint then
+        if UI.editMode then UI.editTint:Show() else UI.editTint:Hide() end
+    end
     if UI.resetBtn then
         if UI.editMode then UI.resetBtn:Show() else UI.resetBtn:Hide() end
     end
     if UI.hint then
         UI.hint:SetText(UI.editMode
             and "Edit mode: drag lines/sections to reorder; click to edit, right-click to delete, Ctrl-click to duplicate."
-            or  "Click a line to send it. {TOKENS} like {MT} fill in from Set Names.")
+            or  "Click a line to send it to the channel shown top-left. {TOKENS} like {MT} fill in from Set Names.")
+    end
+    -- Once-ever chat tip the first time Edit is turned on, since the gestures are
+    -- otherwise only in hover tooltips.
+    if UI.editMode and not ns.Config.EditTipShown() then
+        ns.Config.SetEditTipShown(true)
+        ns.Print("Edit mode: click a line to edit, right-click to delete, Ctrl-click to duplicate, drag to reorder. Use \"+ Add line\"/\"+ Add section\" to add; \"Reset callouts\" restores defaults.")
     end
     if popup then popup:Hide() end
     UI.Refresh()
@@ -214,7 +228,7 @@ function UI.BuildEditControls(parent, after)
     })
     UI.editBtn = editBtn
 
-    local resetBtn = UI.Button(parent, 110, UI.BUTTON_H, "Reset tab", function()
+    local resetBtn = UI.Button(parent, 110, UI.BUTTON_H, "Reset callouts", function()
         local id = ns.Config.SelectedInstance()
         if not id then return end
         -- Reset tab drops ALL of this tab's edits/additions/deletions, so it is

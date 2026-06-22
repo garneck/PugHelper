@@ -87,6 +87,19 @@ function api.InGuild()
     return false
 end
 
+-- True if the player can deliver RAID_WARNING (raid lead or assist). The client
+-- silently drops a raid warning from anyone else, so Chat.ResolveChannel uses this
+-- to downgrade RAID_WARNING -> RAID. Tries the old and modern capability calls; if
+-- NONE exist on this build, assume yes so a real lead is never wrongly downgraded.
+function api.CanRaidWarn()
+    local known = false
+    if api.has("IsRaidLeader")  then known = true; if IsRaidLeader()  then return true end end
+    if api.has("IsRaidOfficer") then known = true; if IsRaidOfficer() then return true end end
+    if api.has("UnitIsGroupLeader")    then known = true; if UnitIsGroupLeader("player")    then return true end end
+    if api.has("UnitIsGroupAssistant") then known = true; if UnitIsGroupAssistant("player") then return true end end
+    return not known
+end
+
 -- ---------------------------------------------------------------------------
 --  Modifier keys
 -- ---------------------------------------------------------------------------
@@ -95,5 +108,16 @@ end
 -- rather than erroring if the API is somehow absent.
 function api.ControlDown()
     if api.has("IsControlKeyDown") then return IsControlKeyDown() end
+    return false
+end
+
+-- ---------------------------------------------------------------------------
+--  Timers
+-- ---------------------------------------------------------------------------
+-- Run fn after `delay` seconds via C_Timer if present; returns true if scheduled,
+-- false if no timer API exists (callers fall back to doing nothing timed). Used
+-- for the brief post-send row flash. C_Timer namespace + method are both guarded.
+function api.After(delay, fn)
+    if api.hasMethod(C_Timer, "After") then C_Timer.After(delay, fn); return true end
     return false
 end

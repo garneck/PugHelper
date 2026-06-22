@@ -40,6 +40,7 @@ local function InitNameDropdown(dropdown)
         info.func    = function()
             ns.Config.SetName(token, name)
             UIDropDownMenu_SetText(dropdown, name)
+            if UI.RebuildRoleRows then UI.RebuildRoleRows() end   -- flip the row's unset cue now
         end
         UIDropDownMenu_AddButton(info)
     end
@@ -49,6 +50,7 @@ local function InitNameDropdown(dropdown)
     clearInfo.func         = function()
         ns.Config.SetName(token, "")
         UIDropDownMenu_SetText(dropdown, "")
+        if UI.RebuildRoleRows then UI.RebuildRoleRows() end
     end
     UIDropDownMenu_AddButton(clearInfo)
 end
@@ -74,7 +76,21 @@ local function AcquireRoleRow(panel, i)
         UI.DeleteRoleRow(self.scope, self.token, self.label)
     end)
     remove:SetPoint("TOPLEFT", 2, -3)
-    UI.Tooltip(remove, { { "Delete this role", 1, 0.6, 0.6 } })
+    -- Scope-aware tooltip (set per rebuild via self.scope), since the X does three
+    -- different things: remove a per-raid role, remove a global role everywhere, or
+    -- hide a built-in on this tab.
+    remove:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.scope == "instance" then
+            GameTooltip:AddLine("Remove this custom role from this tab", 1, 0.6, 0.6)
+        elseif self.scope == "global" then
+            GameTooltip:AddLine("Remove this global role from every tab", 1, 0.6, 0.6)
+        else
+            GameTooltip:AddLine("Hide this built-in role here (Reset roles restores it)", 1, 0.6, 0.6)
+        end
+        GameTooltip:Show()
+    end)
+    remove:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- "{TOKEN} Name" label comes FIRST (after the delete X); the dropdown sits to
     -- its right. Wide and word-wrapping so the token and full name are NEVER
@@ -103,6 +119,18 @@ function UI.RebuildRoleRows()
     local selId = ns.Config.SelectedInstance()
     local roles = ns.Content.EffectiveRoles(selId)
     panel.rows = panel.rows or {}
+
+    -- Roster as a set (+ count), to flag a name assigned to someone not currently
+    -- grouped, and to explain the solo state where the dropdowns only list you.
+    local roster, rosterN = {}, 0
+    for _, n in ipairs(ns.api.GroupRoster()) do roster[n] = true; rosterN = rosterN + 1 end
+    if panel.help then
+        if rosterN <= 1 then
+            panel.help:SetText("Not in a group yet - the dropdowns fill from your party/raid once you invite. You can also type names with /pug name TOKEN Name.")
+        else
+            panel.help:SetText("These names fill the {TOKENS} in your callouts. Pick a party/raid member for each role.")
+        end
+    end
 
     -- Name the current tab so "This raid" scope is unambiguous (the panel covers
     -- the tab list while it's open).
@@ -133,11 +161,14 @@ function UI.RebuildRoleRows()
         row.dd:SetPoint("TOPLEFT", ddX, -1)
         row.dd.token = role.key
         local assigned = ns.Config.GetName(role.key) or ""
-        UIDropDownMenu_SetText(row.dd, assigned)
-        -- Amber the role label while no name is assigned, so unset roles stand
-        -- out at a glance (the gold {TOKEN} keeps its own color either way).
+        -- Show "(not set)" rather than a blank box; amber the label while unset, and
+        -- reddish when the assigned player isn't in the current group (only while
+        -- actually grouped, so pre-invite name entry isn't flagged as wrong).
+        UIDropDownMenu_SetText(row.dd, assigned ~= "" and assigned or "|cff808080(not set)|r")
         if assigned == "" then
             row.label:SetTextColor(1, 0.6, 0.1)
+        elseif rosterN > 1 and not roster[assigned] then
+            row.label:SetTextColor(1, 0.5, 0.5)
         else
             row.label:SetTextColor(1, 1, 1)
         end
@@ -218,10 +249,10 @@ local function BuildAddRow(panel)
     -- Scope toggle: a custom role is either Global (every tab) or This raid only.
     -- Defaults to This raid, the clutter-reducing case the user asked for.
     panel.addScope = "instance"
-    local scopeBtn = UI.Button(panel, 96, UI.BUTTON_H, nil, nil)
+    local scopeBtn = UI.Button(panel, 116, UI.BUTTON_H, nil, nil)
     scopeBtn:SetPoint("TOPLEFT", 348, -78)
     local function updateScope()
-        scopeBtn:SetText(panel.addScope == "instance" and "This raid" or "Global")
+        scopeBtn:SetText("Scope: " .. (panel.addScope == "instance" and "This raid" or "Global"))
     end
     scopeBtn:SetScript("OnClick", function()
         panel.addScope = (panel.addScope == "instance") and "global" or "instance"
@@ -234,18 +265,22 @@ local function BuildAddRow(panel)
     })
 
     local addBtn = UI.Button(panel, 56, UI.BUTTON_H, "Add", function() panel.doAddRole() end)
-    addBtn:SetPoint("TOPLEFT", 452, -78)
+    addBtn:SetPoint("TOPLEFT", 472, -78)
 
-    -- Stored on the panel so OnEnterPressed and the button share one path.
+    -- Stored on the panel so OnEnterPressed and the button share one path. On
+    -- failure the reason is shown red in the add header (the chat log is hidden
+    -- behind this overlay); a successful add rebuilds, which resets that header.
     panel.doAddRole = function()
         local instanceId = (panel.addScope == "instance") and ns.Config.SelectedInstance() or nil
-        local key = ns.Content.AddCustomRole(instanceId, nameBox:GetText(), tokenBox:GetText())
+        local key, reason = ns.Content.AddCustomRole(instanceId, nameBox:GetText(), tokenBox:GetText())
         if key then
             nameBox:SetText("")
             tokenBox:SetText("")
             nameBox:ClearFocus()
             tokenBox:ClearFocus()
             UI.RebuildRoleRows()
+        elseif panel.addHeader then
+            panel.addHeader:SetText("|cffff6060" .. (reason or "Could not add role.") .. "|r")
         end
     end
 end
@@ -270,10 +305,16 @@ function UI.BuildNamesPanel(parent)
     title:SetPoint("TOPLEFT", 14, -12)
     title:SetText("Set Player / Role Names")
 
+    -- Close X (top-right), so leaving the overlay doesn't depend on finding "Done".
+    local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", 2, 2)
+    close:SetScript("OnClick", function() panel:Hide(); UI.Refresh(true) end)
+
     local help = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     help:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
     help:SetText("These names fill the {TOKENS} in your callouts. Pick a party/raid member for each role.")
     help:SetTextColor(0.8, 0.8, 0.8)
+    panel.help = help   -- text becomes a solo-state hint in RebuildRoleRows
 
     BuildAddRow(panel)
 
@@ -294,13 +335,13 @@ function UI.BuildNamesPanel(parent)
     end)
 
     -- Reset roles (confirmed) at the bottom-left: separate local / global scopes.
-    local resetRaid = UI.Button(panel, 96, UI.BUTTON_H, "Reset raid", function()
+    local resetRaid = UI.Button(panel, 96, UI.BUTTON_H, "Reset roles", function()
         local id   = ns.Config.SelectedInstance()
         local raid = ns.Content.InstanceName(id, "this raid")
         UI.Confirm("Restore the built-in roles for " .. raid
             .. " and remove the custom roles you added to it?",
             function() ns.Content.ResetRoles(id, "instance"); UI.RebuildRoleRows() end,
-            "Reset raid")
+            "Reset roles")
     end)
     resetRaid:SetPoint("BOTTOMLEFT", 14, 12)
     UI.Tooltip(resetRaid, {
@@ -325,16 +366,20 @@ function UI.BuildNamesPanel(parent)
     end)
     done:SetPoint("BOTTOMRIGHT", -14, 12)
 
-    local clear = UI.Button(panel, 90, UI.BUTTON_H, "Clear All", function()
-        for _, row in ipairs(panel.rows) do
-            if row.container:IsShown() and row.dd.token then
-                ns.Config.SetName(row.dd.token, "")
-                UIDropDownMenu_SetText(row.dd, "")
+    local clear = UI.Button(panel, 96, UI.BUTTON_H, "Clear names", function()
+        -- Confirmed like every other destructive action - it wipes the exact data
+        -- the user came here to enter.
+        UI.Confirm("Clear every player name assigned here? The roles stay.", function()
+            for _, row in ipairs(panel.rows) do
+                if row.container:IsShown() and row.dd.token then
+                    ns.Config.SetName(row.dd.token, "")
+                end
             end
-        end
+            UI.RebuildRoleRows()
+        end, "Clear names")
     end)
     clear:SetPoint("RIGHT", done, "LEFT", -8, 0)
-    UI.Tooltip(clear, { { "Clear the names shown here (keeps the roles)", 1, 1, 1 } })
+    UI.Tooltip(clear, { { "Clear the names assigned here (keeps the roles)", 1, 1, 1 } })
 
     UI.RebuildRoleRows()
     panel:Hide()
