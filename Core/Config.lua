@@ -23,7 +23,11 @@ local DEFAULTS = {
     -- { key, label }, like the built-ins in Content/Roles.lua). `hidden[instanceId]`
     -- is a set of uppercased tokens suppressed on that tab, so any role -
     -- including a built-in - can be deleted from a raid without touching defaults.
-    customRoles = { global = {}, byInstance = {}, hidden = {} },
+    -- `labels[instanceId]` is a per-tab map of token -> display-label override (so a
+    -- renamed built-in/global role stays scoped to the tab it was edited on), and
+    -- `order[instanceId]` is a per-tab list of uppercased tokens giving the display
+    -- order (tokens not listed fall in after, in natural order).
+    customRoles = { global = {}, byInstance = {}, hidden = {}, labels = {}, order = {} },
     -- Minimap launcher button: angle (degrees) around the ring + a hidden flag.
     minimap = { angle = 220, hide = false },
     -- One-time UI tips already shown (so they print once, ever). e.g. the edit-mode
@@ -168,11 +172,13 @@ end
 -- Content.lua owns the add/remove policy (token sanitizing, collisions); this
 -- just guarantees the shape so the rest of the addon never pokes PugHelperDB.
 function Config.CustomRoles()
-    if not PugHelperDB then return { global = {}, byInstance = {}, hidden = {} } end
+    if not PugHelperDB then return { global = {}, byInstance = {}, hidden = {}, labels = {}, order = {} } end
     local cr = PugHelperDB.customRoles or {}
     cr.global     = cr.global or {}
     cr.byInstance = cr.byInstance or {}
     cr.hidden     = cr.hidden or {}
+    cr.labels     = cr.labels or {}
+    cr.order      = cr.order or {}
     PugHelperDB.customRoles = cr
     return cr
 end
@@ -194,6 +200,8 @@ function Config.PruneCustomization(isLive)
     if type(cr) == "table" then
         sweep(cr.byInstance)
         sweep(cr.hidden)
+        sweep(cr.labels)
+        sweep(cr.order)
     end
 end
 

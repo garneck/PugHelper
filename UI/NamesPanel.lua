@@ -1,14 +1,24 @@
 --[[-------------------------------------------------------------------------
     PUG Helper - UI/NamesPanel.lua
 ---------------------------------------------------------------------------
-    The "Set Names" overlay: one dropdown per role token, populated live from
-    the current party/raid, plus an "add a custom role" control.
+    The "Set Names" overlay: one row per role token (a name dropdown populated
+    live from the current party/raid), plus an "add a custom role" control.
 
     Roles come from ns.Content.EffectiveRoles(selectedInstance): the built-ins
     (Content/Roles.lua), the user's global custom roles, and the custom roles
-    scoped to the currently selected raid tab. The row list is rebuilt whenever
-    roles change (add/remove) or the tab switches, reusing pooled widgets so the
-    named dropdown frames are never leaked or duplicated.
+    scoped to the currently selected raid tab - returned in the user's saved
+    per-tab order, with any per-tab label override applied. The row list is
+    rebuilt whenever roles change (add/remove/edit/reorder) or the tab switches,
+    reusing pooled widgets so the named dropdown frames are never duplicated.
+
+    Each row can be:
+      - assigned a name (the dropdown),
+      - deleted (the X),
+      - edited (the Edit button, or clicking the row): rename the label, and for
+        a custom role change its {TOKEN} too - via ns.Content.EditRole,
+      - reordered (drag the row): ns.Content.MoveRole, with a drop indicator and a
+        trailing end-zone for "move to the bottom". Mirrors the section/line drag
+        in UI/Window.lua.
 
     Names are read/written through ns.Config (never PugHelperDB directly) and are
     keyed by bare token, so a name picked here fills {TOKEN} everywhere.
@@ -24,7 +34,7 @@ local T  = UI.Theme   -- design tokens (colours / sizes / fonts)
 
 local STEP       = 30   -- minimum role row height (a single text line)
 local DD_W       = 100  -- dropdown selected-text width
-local LABEL_X    = 24   -- role label x: just right of the delete X (label is first)
+local LABEL_X    = 72   -- role label x: right of the delete X + Edit button (label is first)
 local DD_RESERVE = 165  -- right-side room reserved for the dropdown + edge margin
 
 -- Shared dropdown initializer. UIDropDownMenu_Initialize calls this with the
@@ -59,21 +69,201 @@ end
 -- (The single-line input builder lives in UI/Helpers.lua as UI.MakeInput.)
 
 -- ---------------------------------------------------------------------------
+--  Drag-to-reorder: a single drop indicator line, mirroring UI/Window.lua.
+-- ---------------------------------------------------------------------------
+-- UI.roleDrag holds the active drag: { instanceId, fromIndex, toIndex }.
+local roleDropIndicator
+
+local function RoleDropIndicator()
+    local panel = UI.namesPanel
+    if not panel or not panel.scrollChild then return nil end
+    if not roleDropIndicator then
+        roleDropIndicator = panel.scrollChild:CreateTexture(nil, "OVERLAY")
+        roleDropIndicator:SetColorTexture(T.rgba(T.color.accent))
+        roleDropIndicator:Hide()
+    end
+    return roleDropIndicator
+end
+
+local function ClearRoleDrop()
+    if roleDropIndicator then roleDropIndicator:Hide() end
+end
+
+-- During a drag, mark `targetIndex` (1..#roles+1) as the drop slot and draw the
+-- indicator at the TOP edge of `anchor` (a role row, or the end-zone for the last
+-- slot). targetIndex means "insert before role #targetIndex".
+function UI.SetRoleDropTarget(anchor, targetIndex)
+    if not UI.roleDrag or not anchor then return end
+    UI.roleDrag.toIndex = targetIndex
+    local ind = RoleDropIndicator()
+    if not ind then return end
+    ind:ClearAllPoints()
+    ind:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 0)
+    ind:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 0)
+    ind:SetHeight(2)
+    ind:Show()
+end
+
+-- ---------------------------------------------------------------------------
+--  Edit-role popup (built once, reused). Label for any role; token for customs.
+-- ---------------------------------------------------------------------------
+local rolePopup
+
+local function BuildRolePopup()
+    local p = CreateFrame("Frame", nil, UI.frame)
+    p:SetFrameStrata("DIALOG")
+    p:SetSize(360, 200)
+    p:SetPoint("CENTER")
+    p:EnableMouse(true)
+
+    UI.PanelChrome(p)
+    p.title = UI.TitleBar(p)   -- text set per open in UI.OpenRoleEditor
+
+    -- Label field (every role has an editable display label).
+    local nameCap = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    nameCap:SetPoint("TOPLEFT", 16, -42)
+    nameCap:SetText("Label")
+    local nameBox = UI.MakeInput(p, 240, 0, function() if p.onSave then p.onSave() end end)
+    nameBox:SetPoint("TOPLEFT", 64, -38)
+    nameBox:SetScript("OnEscapePressed", function() p:Hide() end)
+    p.nameBox = nameBox
+
+    -- Token field (custom roles only) and a static token label (built-ins).
+    local tokenCap = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    tokenCap:SetPoint("TOPLEFT", 16, -80)
+    tokenCap:SetText("Token")
+    local tokenBox = UI.MakeInput(p, 120, 16, function() if p.onSave then p.onSave() end end)
+    tokenBox:SetPoint("TOPLEFT", 64, -76)
+    tokenBox:SetScript("OnEscapePressed", function() p:Hide() end)
+    p.tokenBox = tokenBox
+
+    local tokenStatic = p:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    tokenStatic:SetPoint("LEFT", tokenBox, "LEFT", 2, 0)
+    p.tokenStatic = tokenStatic
+
+    -- Tab cycles between Label and Token (only when the Token box is shown).
+    nameBox:SetScript("OnTabPressed", function() if tokenBox:IsShown() then tokenBox:SetFocus() end end)
+    tokenBox:SetScript("OnTabPressed", function() nameBox:SetFocus() end)
+    -- Typing into a field clears a stale validation error.
+    local function clearErr() if p.err then p.err:SetText("") end end
+    nameBox:SetScript("OnTextChanged", clearErr)
+    tokenBox:SetScript("OnTextChanged", clearErr)
+
+    -- A per-role hint (token-fixed note for built-ins / how the token works).
+    local hint = p:CreateFontString(nil, "OVERLAY", T.font.hint)
+    hint:SetPoint("TOPLEFT", 16, -104)
+    hint:SetPoint("RIGHT", p, "RIGHT", -16, 0)
+    hint:SetJustifyH("LEFT")
+    hint:SetWordWrap(true)
+    p.hint = hint
+
+    -- Validation error (red), shown in place of falling back to the chat log
+    -- (which is hidden behind the overlay).
+    local err = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    err:SetPoint("TOPLEFT", 16, -138)
+    err:SetPoint("RIGHT", p, "RIGHT", -16, 0)
+    err:SetJustifyH("LEFT")
+    err:SetWordWrap(true)
+    err:SetTextColor(T.rgb(T.color.loud))
+    p.err = err
+
+    local save = UI.Button(p, 90, UI.BUTTON_H, "Save", function() if p.onSave then p.onSave() end end)
+    save:SetPoint("BOTTOMRIGHT", -16, 14)
+    local cancel = UI.Button(p, 90, UI.BUTTON_H, "Cancel", function() p:Hide() end)
+    cancel:SetPoint("RIGHT", save, "LEFT", -8, 0)
+
+    p:SetScript("OnHide", function(self)
+        if self.err then self.err:SetText("") end
+        self.nameBox:ClearFocus()
+        self.tokenBox:ClearFocus()
+    end)
+
+    -- Modal over the Set Names overlay so a click behind can't refresh the panel
+    -- (and re-index the roles) out from under an in-progress edit.
+    UI.MakeModal(p, UI.namesPanel)
+
+    p:Hide()
+    return p
+end
+
+-- Open the editor for a role (an EffectiveRoles entry: key, label, baseLabel,
+-- scope). instanceId is the current tab. Built-ins edit the label only (token is
+-- fixed); customs edit label + token.
+function UI.OpenRoleEditor(instanceId, role)
+    if not role then return end
+    rolePopup = rolePopup or BuildRolePopup()
+    local p = rolePopup
+    p.title:SetText("Edit role  " .. T.colorize(T.color.title, "{" .. role.key .. "}"))
+    p.err:SetText("")
+    p.nameBox:SetText(role.label or "")
+
+    local isBuiltin = (role.scope == "builtin")
+    if isBuiltin then
+        p.tokenBox:Hide(); p.tokenBox.bg:Hide()
+        p.tokenStatic:Show()
+        p.tokenStatic:SetText(T.colorize(T.color.title, "{" .. role.key .. "}")
+            .. "  " .. T.colorize(T.color.faint, "(built-in - fixed)"))
+        p.hint:SetText("A built-in token can't be changed (your callouts reference {"
+            .. role.key .. "}). Edit the label only; clear it to restore \""
+            .. ns.util.escapePipes(role.baseLabel or role.key) .. "\".")
+    else
+        p.tokenStatic:Hide()
+        p.tokenBox:Show(); p.tokenBox.bg:Show()
+        p.tokenBox:SetText(role.key or "")
+        p.hint:SetText("Token: letters/numbers only. Changing it moves the assigned name with it.")
+    end
+
+    p.onSave = function()
+        -- Read the tab fresh on save (as DeleteRoleRow does), falling back to the
+        -- open-time tab. The editor is closed on any tab switch, so these agree, but
+        -- binding the write to the live selection keeps it correct without the closure.
+        local id = ns.Config.SelectedInstance() or instanceId
+        local newLabel = p.nameBox:GetText()
+        local newToken = isBuiltin and role.key or p.tokenBox:GetText()
+        local ok, reason = ns.Content.EditRole(id, role.scope, role.key, newLabel, newToken)
+        if ok then
+            p:Hide()
+            UI.RebuildRoleRows()
+        else
+            p.err:SetText(reason or "Could not save the role.")
+        end
+    end
+
+    p:Show()
+    p:Raise()
+    p.nameBox:SetFocus()
+    p.nameBox:SetCursorPosition(#(role.label or ""))
+end
+
+-- Dismiss the editor popup. Called on tab switch / window hide so a Save can never
+-- write against a stale tab or a since-removed role.
+function UI.CloseRoleEditor()
+    if rolePopup then rolePopup:Hide() end
+end
+
+-- ---------------------------------------------------------------------------
 --  Role rows (pooled by index, laid out into the scroll child each rebuild)
 -- ---------------------------------------------------------------------------
--- Build (or reuse) the row widgets at pool index `i`: a container, a label, a
--- name dropdown (uniquely named by index so the template is happy and the frame
--- is reused, never leaked), and a remove button shown only for custom roles.
+-- Build (or reuse) the row widgets at pool index `i`. The row itself is a Button
+-- so it can be clicked (edit) and dragged (reorder), mirroring the callout rows
+-- in UI/Window.lua. Children: a delete X, an Edit button, the label, and the name
+-- dropdown (uniquely named by index so the template is happy and the frame is
+-- reused, never leaked).
 local function AcquireRoleRow(panel, i)
     local rows = panel.rows
     if rows[i] then return rows[i] end
 
-    local container = CreateFrame("Frame", nil, panel.scrollChild)
+    local row = CreateFrame("Button", nil, panel.scrollChild)
+    row:RegisterForDrag("LeftButton")   -- drag the row to reorder it (Edit button renames)
+
+    local hl = row:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints(true)
+    hl:SetColorTexture(T.wash(T.color.accent, 0.18))
 
     -- Delete button on the FAR LEFT, well clear of the scroll frame's right edge
     -- (whose clip boundary swallowed clicks placed there). Every role is
     -- deletable; how is decided by scope in UI.DeleteRoleRow.
-    local remove = UI.Button(container, 18, 18, "X", function(self)
+    local remove = UI.Button(row, 18, 18, "X", function(self)
         UI.DeleteRoleRow(self.scope, self.token, self.label)
     end)
     remove:SetPoint("TOPLEFT", 2, -3)
@@ -92,20 +282,69 @@ local function AcquireRoleRow(panel, i)
         GameTooltip:Show()
     end)
     remove:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row.remove = remove
 
-    -- "{TOKEN} Name" label comes FIRST (after the delete X); the dropdown sits to
-    -- its right. Wide and word-wrapping so the token and full name are NEVER
+    -- Edit button: rename the label (and, for a custom role, change the token).
+    local editBtn = UI.Button(row, 42, 18, "Edit", function()
+        if row.role then UI.OpenRoleEditor(row.instanceId, row.role) end
+    end)
+    editBtn:SetPoint("TOPLEFT", 24, -3)
+    UI.Tooltip(editBtn, {
+        { "Edit this role", 1, 1, 1 },
+        { "Rename the label; custom roles can also change their {TOKEN}.", 0.8, 0.8, 0.8, true },
+    })
+    row.editBtn = editBtn
+
+    -- "{TOKEN} Name" label comes after the buttons; the dropdown sits to its
+    -- right. Wide and word-wrapping so the token and full name are NEVER
     -- truncated; the exact width/x is set per-rebuild from the scroll width.
-    local label = container:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetJustifyH("LEFT")
     label:SetJustifyV("TOP")
     label:SetWordWrap(true)
+    row.label = label
 
-    local dd = CreateFrame("Frame", "PugHelperNameDD" .. i, container, "UIDropDownMenuTemplate")
+    local dd = CreateFrame("Frame", "PugHelperNameDD" .. i, row, "UIDropDownMenuTemplate")
     UIDropDownMenu_SetWidth(dd, DD_W)
     UIDropDownMenu_Initialize(dd, InitNameDropdown)
+    row.dd = dd
 
-    local row = { container = container, label = label, dd = dd, remove = remove }
+    -- Drag the row to reorder (the X deletes, the Edit button renames, the dropdown
+    -- assigns a name - so the row body is reserved for the drag gesture only, with no
+    -- click handler to fight the dropdown's own click area).
+    row:SetScript("OnDragStart", function(self)
+        if not self.roleIndex then return end
+        UI.roleDrag = { instanceId = self.instanceId, fromIndex = self.roleIndex }
+        self.label:SetAlpha(0.35)
+        GameTooltip:Hide()
+    end)
+    row:SetScript("OnDragStop", function(self)
+        local d = UI.roleDrag
+        UI.roleDrag = nil
+        self.label:SetAlpha(1)
+        ClearRoleDrop()
+        if d and d.toIndex then
+            ns.Content.MoveRole(d.instanceId, d.fromIndex, d.toIndex)
+            UI.RebuildRoleRows()
+        end
+    end)
+    row:SetScript("OnEnter", function(self)
+        if UI.roleDrag then
+            if UI.roleDrag.instanceId == self.instanceId and self.roleIndex then
+                UI.SetRoleDropTarget(self, self.roleIndex)
+            end
+            return
+        end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        T.addLine(GameTooltip, "Drag to reorder", T.color.accent)
+        T.addLine(GameTooltip, "Use Edit to rename / change token", T.color.muted)
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+        if UI.roleDrag then UI.roleDrag.toIndex = nil; ClearRoleDrop() end
+    end)
+
     rows[i] = row
     return row
 end
@@ -116,6 +355,11 @@ end
 function UI.RebuildRoleRows()
     local panel = UI.namesPanel
     if not panel or not panel.scrollChild then return end
+
+    -- A rebuild re-indexes the roles, invalidating any in-flight drag started
+    -- against the old indices; drop it defensively (matches UI.Refresh in Window).
+    UI.roleDrag = nil
+    ClearRoleDrop()
 
     local selId = ns.Config.SelectedInstance()
     local roles = ns.Content.EffectiveRoles(selId)
@@ -157,6 +401,10 @@ function UI.RebuildRoleRows()
     local y = -2
     for i, role in ipairs(roles) do
         local row = AcquireRoleRow(panel, i)
+        row.instanceId = selId
+        row.roleIndex  = i
+        row.role       = role
+        row.label:SetAlpha(1)
 
         -- Token first (gold), then the full name; the label wraps so nothing is
         -- ever cut off.
@@ -191,15 +439,31 @@ function UI.RebuildRoleRows()
         row.remove.label = role.label
 
         local h = math.max(STEP, row.label:GetStringHeight() + 12)
-        row.container:ClearAllPoints()
-        row.container:SetPoint("TOPLEFT", 4, y)
-        row.container:SetSize(width - 8, h)
-        row.container:Show()
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 4, y)
+        row:SetSize(width - 8, h)
+        row:Show()
         y = y - h - 2
     end
 
     for i = #roles + 1, #panel.rows do
-        panel.rows[i].container:Hide()
+        local row = panel.rows[i]
+        row:Hide()
+        -- Clear the per-render drag key on surplus pooled rows so a hidden frame can
+        -- never start a drag with a stale index (OnDragStart guards on roleIndex).
+        row.roleIndex = nil
+    end
+
+    -- Trailing end-zone: only meaningful during a drag, where hovering it targets
+    -- the last slot ("move to the bottom"). Mirrors the "+ Add section" end anchor.
+    panel.roleCount      = #roles
+    panel.roleInstanceId = selId
+    if panel.endZone then
+        panel.endZone:ClearAllPoints()
+        panel.endZone:SetPoint("TOPLEFT", 4, y)
+        panel.endZone:SetSize(width - 8, STEP)
+        panel.endZone:Show()
+        y = y - STEP
     end
 
     panel.scrollChild:SetHeight(-y + 6)
@@ -325,6 +589,10 @@ function UI.BuildNamesPanel(parent)
     -- covers the message rows instead of letting their text bleed through.
     panel:SetFrameLevel(parent:GetFrameLevel() + 100)
     panel:EnableMouse(true)
+    -- The edit popup floats at UIParent-ish strata and isn't a child of this panel,
+    -- so hide it whenever the panel hides (Done/X/Escape, or the window closing) -
+    -- otherwise its shown flag survives and it re-appears on reopen.
+    panel:SetScript("OnHide", function() if UI.CloseRoleEditor then UI.CloseRoleEditor() end end)
 
     -- Same chrome as the window/editor so the overlay reads as one design (it
     -- previously had a fill but no border or title strip).
@@ -360,19 +628,35 @@ function UI.BuildNamesPanel(parent)
         end
     end)
 
+    -- End-zone: a mouse-only frame after the last row that, during a drag, marks the
+    -- last drop slot so a role can be moved to the very bottom (rows themselves only
+    -- target "insert before me"). Inert when not dragging.
+    local endZone = CreateFrame("Frame", nil, child)
+    endZone:EnableMouse(true)
+    endZone:Hide()
+    endZone:SetScript("OnEnter", function(self)
+        if UI.roleDrag and UI.roleDrag.instanceId == panel.roleInstanceId then
+            UI.SetRoleDropTarget(self, (panel.roleCount or 0) + 1)
+        end
+    end)
+    endZone:SetScript("OnLeave", function()
+        if UI.roleDrag then UI.roleDrag.toIndex = nil; ClearRoleDrop() end
+    end)
+    panel.endZone = endZone
+
     -- Reset roles (confirmed) at the bottom-left: separate local / global scopes.
     local resetRaid = UI.Button(panel, 96, UI.BUTTON_H, "Reset roles", function()
         local id   = ns.Config.SelectedInstance()
         local tab  = ns.Content.InstanceName(id, "this tab")
         UI.Confirm("Restore the built-in roles for " .. tab
-            .. " and remove the custom roles you added to it?",
+            .. " and remove the custom roles, edits, and ordering you set on it?",
             function() ns.Content.ResetRoles(id, "instance"); UI.RebuildRoleRows() end,
             "Reset roles")
     end)
     resetRaid:SetPoint("BOTTOMLEFT", 14, 12)
     UI.Tooltip(resetRaid, {
         { "Reset this tab's roles", 1, 1, 1 },
-        { "Drops roles you added to this tab and un-hides its built-ins.", 0.8, 0.8, 0.8, true },
+        { "Drops roles, label edits, and the order you set on this tab, and un-hides its built-ins.", 0.8, 0.8, 0.8, true },
     })
 
     local resetGlobal = UI.Button(panel, 104, UI.BUTTON_H, "Reset global", function()
@@ -397,7 +681,7 @@ function UI.BuildNamesPanel(parent)
         -- the user came here to enter.
         UI.Confirm("Clear the player names shown on this tab? The roles stay.", function()
             for _, row in ipairs(panel.rows) do
-                if row.container:IsShown() and row.dd.token then
+                if row:IsShown() and row.dd and row.dd.token then
                     ns.Config.SetName(row.dd.token, "")
                 end
             end

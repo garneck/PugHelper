@@ -523,6 +523,9 @@ end
 
 function UI.SelectInstance(instanceId)
     ns.Config.SetSelectedInstance(instanceId)
+    -- A role being edited is bound to the outgoing tab; close it so a Save can't
+    -- write a label/token override against the wrong instance.
+    if UI.CloseRoleEditor then UI.CloseRoleEditor() end
     for id, btn in pairs(UI.instanceButtons) do
         if id == instanceId then btn:LockHighlight() else btn:UnlockHighlight() end
     end
@@ -691,6 +694,9 @@ function UI.BuildUI()
         -- Close the editor popup too (it's a child of this frame): clears its shown
         -- flag so a reopen doesn't briefly re-show it, and drops its modal blocker.
         if UI.CloseEditPopup then UI.CloseEditPopup() end
+        -- The role editor popup floats above the Set Names overlay and isn't a child
+        -- of it; close it too so it can't be stranded after the window hides.
+        if UI.CloseRoleEditor then UI.CloseRoleEditor() end
         -- Same for the Set Names overlay: as a child it only hides visually when the
         -- window hides, but its own shown flag survives and would re-cover the pane
         -- on reopen. Hide it so a reopen lands on the callout list.

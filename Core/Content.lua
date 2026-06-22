@@ -154,6 +154,41 @@ local function hiddenSet(instanceId)
     return (type(h) == "table") and h or nil
 end
 
+-- The per-tab display-label overrides for a tab (uppercased token -> label), or
+-- nil. A user-edited label lives here so the rename stays scoped to the tab it was
+-- changed on; the built-in/global definition is never mutated. Mirrors hiddenSet.
+local function labelSet(instanceId)
+    local l = instanceId and Config.CustomRoles().labels[instanceId]
+    return (type(l) == "table") and l or nil
+end
+
+-- The saved per-tab display order (a list of uppercased tokens), or nil.
+local function orderList(instanceId)
+    local o = instanceId and Config.CustomRoles().order[instanceId]
+    return (type(o) == "table") and o or nil
+end
+
+-- Reorder a list of role entries to match `order` (a list of tokens): tokens named
+-- in `order` come first in that order, then any roles not named keep their natural
+-- relative order after. Stable and O(n); a token in `order` that isn't present is
+-- skipped, and a present role missing from `order` is appended. Returns a new list,
+-- so the input (and thus EffectiveRoles' build order) is never mutated in place.
+local function applyOrder(list, order)
+    if not order or #order == 0 then return list end
+    local byKey = {}
+    for _, r in ipairs(list) do byKey[r.key:upper()] = r end
+    local out, used = {}, {}
+    for _, tok in ipairs(order) do
+        local up = tostring(tok):upper()
+        local r = byKey[up]
+        if r and not used[up] then used[up] = true; out[#out + 1] = r end
+    end
+    for _, r in ipairs(list) do
+        if not used[r.key:upper()] then out[#out + 1] = r end
+    end
+    return out
+end
+
 -- The full ordered role list to offer for name assignment on the given tab:
 -- built-ins, then global custom roles, then this instance's custom roles, minus
 -- any built-in hidden on this tab. Each entry is tagged { key, label, scope,
@@ -165,6 +200,7 @@ end
 function Content.EffectiveRoles(instanceId)
     local out, seen = {}, {}
     local hidden = hiddenSet(instanceId)
+    local labels = labelSet(instanceId)
     local function add(role, scope, owner)
         local key = tostring(role.key)
         local up  = key:upper()
@@ -177,12 +213,20 @@ function Content.EffectiveRoles(instanceId)
         -- invisible with no feedback.
         if scope == "builtin" and hidden and hidden[up] then return end
         seen[up] = true
-        table.insert(out, { key = key, label = role.label or key, scope = scope, instanceId = owner })
+        -- baseLabel is the shipped (built-in) or definition (custom) label; `label`
+        -- is what this tab shows, with any per-tab override applied. Editing a label
+        -- writes the override, so the registered defaults and the custom-role
+        -- definition are never mutated. The UI uses baseLabel for "restore default".
+        local baseLabel = role.label or key
+        local label = baseLabel
+        if labels and labels[up] and labels[up] ~= "" then label = labels[up] end
+        table.insert(out, { key = key, label = label, baseLabel = baseLabel, scope = scope, instanceId = owner })
     end
     for _, role in ipairs(Content.ValidRoles())              do add(role, "builtin")            end
     for _, role in ipairs(Content.GlobalRoles())             do add(role, "global")             end
     for _, role in ipairs(Content.InstanceRoles(instanceId)) do add(role, "instance", instanceId) end
-    return out
+    -- Finally apply the user's per-tab display order (no-op without a saved order).
+    return applyOrder(out, orderList(instanceId))
 end
 
 -- True if any effective role on the given tab already uses this (uppercased)
@@ -266,6 +310,35 @@ function Content.RemoveCustomRole(instanceId, key)
     if instanceId and #list == 0 then
         store.byInstance[instanceId] = nil
     end
+
+    -- Forget any per-tab label override / order entry that referenced this token, so
+    -- it can't bleed onto a future role re-added under the same token (a stale order
+    -- entry would also pin the re-add to the deleted role's old slot). A per-tab role
+    -- only ever has entries on its own tab; a global role can have them on any. Empty
+    -- maps are nil'd AFTER iterating, never by deleting a key from the table being
+    -- walked, so the pairs() traversal can't be corrupted.
+    local function forgetLabel(lab)   -- returns true if the override map is now empty
+        if type(lab) ~= "table" then return false end
+        lab[up] = nil
+        return next(lab) == nil
+    end
+    local function forgetOrder(ord)   -- returns true if the order list is now empty
+        if type(ord) ~= "table" then return false end
+        for i = #ord, 1, -1 do
+            if tostring(ord[i]):upper() == up then table.remove(ord, i) end
+        end
+        return #ord == 0
+    end
+    if instanceId then
+        if forgetLabel(store.labels[instanceId]) then store.labels[instanceId] = nil end
+        if forgetOrder(store.order[instanceId]) then store.order[instanceId]  = nil end
+    else
+        local emptyLabels, emptyOrder = {}, {}
+        for id, lab in pairs(store.labels) do if forgetLabel(lab) then emptyLabels[#emptyLabels + 1] = id end end
+        for id, ord in pairs(store.order)  do if forgetOrder(ord) then emptyOrder[#emptyOrder + 1]  = id end end
+        for _, id in ipairs(emptyLabels) do store.labels[id] = nil end
+        for _, id in ipairs(emptyOrder)  do store.order[id]  = nil end
+    end
 end
 
 -- Hide a role on a tab without deleting any definition. Used to "delete" a
@@ -279,6 +352,141 @@ function Content.HideRole(instanceId, key)
     hidden[instanceId][tostring(key):upper()] = true
 end
 
+-- Set (or clear) the per-tab display-label override for a token on `instanceId`.
+-- An empty label clears the override, restoring the role's shipped/definition
+-- label. Scoped to the tab so a rename here never affects other tabs (matching the
+-- per-tab customization model). The lone writer of CustomRoles().labels; used by
+-- EditRole.
+function Content.SetRoleLabel(instanceId, token, label)
+    if not instanceId then return end
+    local up = tostring(token or ""):upper()
+    if up == "" then return end
+    local labels = Config.CustomRoles().labels
+    label = util.oneLine(label)
+    if label == "" then
+        if labels[instanceId] then
+            labels[instanceId][up] = nil
+            if next(labels[instanceId]) == nil then labels[instanceId] = nil end
+        end
+    else
+        labels[instanceId] = labels[instanceId] or {}
+        labels[instanceId][up] = label
+    end
+end
+
+-- When a custom role's token changes, follow it through the saved per-tab maps so a
+-- reorder / label / hide entry that referenced the old token keeps applying to the
+-- renamed role. (The assigned player name is migrated separately in EditRole.)
+-- Built-in tokens never change, so this only ever runs for a custom-role token edit.
+local function renameTokenInMaps(oldUp, newUp)
+    local cr = Config.CustomRoles()
+    for _, list in pairs(cr.order) do
+        if type(list) == "table" then
+            for i, tok in ipairs(list) do
+                if tostring(tok):upper() == oldUp then list[i] = newUp end
+            end
+        end
+    end
+    for _, map in pairs(cr.labels) do
+        if type(map) == "table" and map[oldUp] ~= nil then
+            map[newUp] = map[oldUp]; map[oldUp] = nil
+        end
+    end
+    for _, map in pairs(cr.hidden) do
+        if type(map) == "table" and map[oldUp] ~= nil then
+            map[newUp] = map[oldUp]; map[oldUp] = nil
+        end
+    end
+end
+
+-- Edit a role shown on `instanceId`. A BUILT-IN role's token is fixed (callout
+-- lines reference it as {TOKEN}), so only its display label changes - stored as a
+-- per-tab override. A CUSTOM role (global or per-instance) can change both its token
+-- and its label in its own definition; a token change migrates the assigned player
+-- name and follows the token through the saved order / label / hidden maps.
+-- Returns true on success, or nil + a short reason on an empty/duplicate token, so
+-- the editor can surface it (the chat log is hidden behind the overlay). Mirrors
+-- AddCustomRole's validation.
+function Content.EditRole(instanceId, scope, oldKey, newLabel, newToken)
+    oldKey = tostring(oldKey or ""):upper()
+    if oldKey == "" then return nil, "Missing role." end
+
+    if scope == "builtin" then
+        -- Label only, per-tab; an empty label restores the shipped default.
+        Content.SetRoleLabel(instanceId, oldKey, newLabel)
+        return true
+    end
+
+    local token = tostring(newToken or ""):gsub("%W", ""):upper()
+    if token == "" then
+        return nil, "Enter a token (letters or numbers only)."
+    end
+
+    local tokenChanged = (token ~= oldKey)
+    if tokenChanged then
+        -- The role itself still holds oldKey here, so a hit on `token` is a genuine
+        -- collision with a DIFFERENT role (we only check when the token changed).
+        if tokenTaken(instanceId, token) then
+            return nil, "Token {" .. token .. "} is already used here."
+        end
+        if scope == "global" and tokenUsedByAnyInstance(token) then
+            return nil, "Token {" .. token .. "} is already a per-tab role - remove it there first."
+        end
+    end
+
+    -- Find the role's own definition entry (a live ref into the store).
+    local store = Config.CustomRoles()
+    local list  = (scope == "instance") and store.byInstance[instanceId] or store.global
+    local entry
+    if type(list) == "table" then
+        for _, r in ipairs(list) do
+            if type(r) == "table" and tostring(r.key):upper() == oldKey then entry = r; break end
+        end
+    end
+    if not entry then return nil, "That role no longer exists." end
+
+    entry.key = token
+
+    if tokenChanged then
+        -- Move the assigned name onto the new token. Leave the old name in place for
+        -- PruneNames to reap: another tab may still reuse the old token (cross-raid
+        -- token reuse is allowed), and we must never drop a name another role needs.
+        local nm = Config.GetName(oldKey)
+        if nm and nm ~= "" then Config.SetName(token, nm) end
+        renameTokenInMaps(oldKey, token)
+    end
+
+    -- A label equal to the definition's own default is stored as "no override" so
+    -- the role keeps tracking its definition; otherwise the typed text is the
+    -- per-tab override. entry.label is the custom role's own (default) label.
+    if util.oneLine(newLabel) == util.oneLine(entry.label) then
+        Content.SetRoleLabel(instanceId, token, "")
+    else
+        Content.SetRoleLabel(instanceId, token, newLabel)
+    end
+    return true
+end
+
+-- Move the role at display index `fromIndex` so it lands immediately before
+-- `insertBefore` (1..#roles+1; #roles+1 = "to the end") on `instanceId`. The order
+-- is captured from the CURRENT effective order, so a single drag yields a complete
+-- per-tab ordering and later-added roles append in natural order. Mirrors
+-- MoveSection / MoveLine. No-op if the move wouldn't change anything.
+function Content.MoveRole(instanceId, fromIndex, insertBefore)
+    if not instanceId then return end
+    local roles = Content.EffectiveRoles(instanceId)
+    local n = #roles
+    if fromIndex < 1 or fromIndex > n then return end
+    insertBefore = math.max(1, math.min(insertBefore or (n + 1), n + 1))
+    if insertBefore == fromIndex or insertBefore == fromIndex + 1 then return end
+    local tokens = {}
+    for _, r in ipairs(roles) do tokens[#tokens + 1] = r.key:upper() end
+    local item = table.remove(tokens, fromIndex)
+    if insertBefore > fromIndex then insertBefore = insertBefore - 1 end
+    table.insert(tokens, insertBefore, item)
+    Config.CustomRoles().order[instanceId] = tokens
+end
+
 -- Restore default roles. scope "instance" drops this raid's added roles and
 -- un-hides its built-ins; scope "global" removes every global custom role. Built-
 -- in definitions are never touched, so this only clears the user's own overrides.
@@ -290,6 +498,8 @@ function Content.ResetRoles(instanceId, scope)
     elseif scope == "instance" and instanceId then
         store.byInstance[instanceId] = nil
         store.hidden[instanceId]     = nil
+        store.labels[instanceId]     = nil
+        store.order[instanceId]      = nil
     end
 end
 
