@@ -128,10 +128,16 @@ local function AcquireRow()
 
     b:SetScript("OnClick", function(self, button)
         if UI.editMode then
-            if self.addSection then
-                UI.OpenAddSectionEditor(self.instanceId)
-            elseif self.addRow then
-                UI.OpenAddEditor(self.instanceId, self.sectionIndex)
+            if self.addSection or self.addRow then
+                -- Add rows act on left-click only; ignore other buttons so a
+                -- right-click can't fall through to the delete branch below (which
+                -- would target a nil line index and remove the section's last line).
+                if button ~= "LeftButton" then return end
+                if self.addSection then
+                    UI.OpenAddSectionEditor(self.instanceId)
+                else
+                    UI.OpenAddEditor(self.instanceId, self.sectionIndex)
+                end
             elseif button == "RightButton" then
                 UI.DeleteLine(self.instanceId, self.sectionIndex, self.lineIndex, self.fullText)
             elseif self.lineIndex and ns.api.ControlDown() then
@@ -330,8 +336,8 @@ function UI.Refresh(preserveEditor)
     -- edit in place, since it changes no content the popup is bound to.
     if not preserveEditor and UI.CloseEditPopup then UI.CloseEditPopup() end
     -- A full rebuild also invalidates the display indices any in-flight drag was
-    -- started against, so abandon a drag still marked active (e.g. a resize-driven
-    -- refresh that fired mid-drag) instead of leaving the pane in phantom-drag mode.
+    -- started against; clear any drag still marked active as a defensive guard so a
+    -- rebuild can never leave the pane stuck in phantom-drag mode.
     UI.drag, UI.lineDrag = nil, nil
     ClearDrop()
     ReleasePool()
@@ -345,7 +351,9 @@ function UI.Refresh(preserveEditor)
     end
 
     local headerText = (inst.name or "(unnamed)")
-        .. (inst.note and ("  |cff999999" .. inst.note .. "|r") or "")
+        -- Escape any literal '|' in the note (e.g. "25-player | Phase 1") to '||',
+        -- or WoW's FontString parser eats it as a stray color/escape lead.
+        .. (inst.note and ("  |cff999999" .. inst.note:gsub("|", "||") .. "|r") or "")
     if ns.Content.HasCustom(id) then
         headerText = headerText .. "  |cff66bb66(customized)|r"
     end
@@ -597,7 +605,12 @@ function UI.BuildUI()
     -- A confirm dialog lives at UIParent (so it floats above everything), so an
     -- Escape-close of the window would otherwise strand it on screen; hide it
     -- whenever the window hides.
-    mainFrame:SetScript("OnHide", function() if UI.HideConfirm then UI.HideConfirm() end end)
+    mainFrame:SetScript("OnHide", function()
+        if UI.HideConfirm then UI.HideConfirm() end
+        -- Close the editor popup too (it's a child of this frame): clears its shown
+        -- flag so a reopen doesn't briefly re-show it, and drops its modal blocker.
+        if UI.CloseEditPopup then UI.CloseEditPopup() end
+    end)
     table.insert(UISpecialFrames, "PugHelperFrame")   -- closes with Escape
 
     UI.Background(mainFrame, 0.04, 0.04, 0.06, 0.96)

@@ -71,7 +71,11 @@ local function BuildPopup()
 
     edit:SetScript("OnTextChanged", function(self)
         if not p.showPreview then return end
-        local resolved = ns.Chat.Substitute(self:GetText())
+        -- Cap the previewed text so a very long callout can't grow the preview down
+        -- over the Save/Cancel buttons; the edit box itself keeps the full text.
+        local raw = self:GetText()
+        if #raw > 160 then raw = raw:sub(1, 160) .. "..." end
+        local resolved = ns.Chat.Substitute(raw)
         resolved = resolved:gsub("{(%w+)}", "|cffff8800{%1}|r")
         previewText:SetText(resolved)
     end)

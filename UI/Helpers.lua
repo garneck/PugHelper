@@ -82,18 +82,25 @@ function UI.EnableWheel(scrollFrame, step)
     end)
 end
 
--- Make `frame` modal: a full-screen, mouse-eating blocker sits just under it
--- whenever it is shown, so nothing behind it stays clickable (e.g. an editor
--- popup's Save can't be hit through a confirm dialog, and vice-versa). The
--- blocker tracks the frame's own show/hide. Texture-light, no new API.
-function UI.MakeModal(frame)
+-- Make `frame` modal: a mouse-eating blocker sits just under it whenever it is
+-- shown, so nothing behind it (within the addon window) stays clickable - e.g. a
+-- confirm dialog's buttons can't be hit through the editor popup, and an
+-- in-progress edit can't be discarded by a click on a row/tab behind it. The
+-- blocker is scoped to `anchor` (default UI.frame, NOT the whole screen) so the
+-- game UI stays usable while a dialog is open; it tracks the frame's show/hide,
+-- is raised with it, and eats the mouse WHEEL as well as clicks (EnableMouse
+-- alone lets wheel events fall through). Texture-light, no new API.
+function UI.MakeModal(frame, anchor)
+    anchor = anchor or UI.frame or UIParent
     local blocker = CreateFrame("Frame", nil, UIParent)
     blocker:SetFrameStrata(frame:GetFrameStrata())
-    blocker:SetAllPoints(UIParent)
+    blocker:SetAllPoints(anchor)
     blocker:EnableMouse(true)
+    blocker:EnableMouseWheel(true)
+    blocker:SetScript("OnMouseWheel", function() end)
     blocker:Hide()
     frame:SetFrameLevel(blocker:GetFrameLevel() + 10)
-    frame:HookScript("OnShow", function(self) blocker:Show(); self:Raise() end)
+    frame:HookScript("OnShow", function(self) blocker:Show(); blocker:Raise(); self:Raise() end)
     frame:HookScript("OnHide", function() blocker:Hide() end)
     return blocker
 end

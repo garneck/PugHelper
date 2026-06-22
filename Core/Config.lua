@@ -84,8 +84,10 @@ end
 function Config.CycleChannel()
     local idx = Config.CHANNEL_INDEX[Config.Channel()] or 1
     idx = (idx % #Config.CHANNEL_NAMES) + 1
-    PugHelperDB.channel = Config.CHANNEL_NAMES[idx]
-    return PugHelperDB.channel
+    -- Route the write through SetChannel so the PugHelperDB nil-guard + validation
+    -- live in one place (every cycled name is valid, so this always sets).
+    Config.SetChannel(Config.CHANNEL_NAMES[idx])
+    return Config.Channel()
 end
 
 -- ---------------------------------------------------------------------------
