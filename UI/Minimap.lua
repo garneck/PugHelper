@@ -15,6 +15,7 @@
 
 local _, ns = ...
 local UI = ns.UI
+local T  = UI.Theme   -- design tokens (colours / sizes / fonts)
 
 local RADIUS = 80   -- distance of the button center from the minimap center
 local button
@@ -68,9 +69,9 @@ function UI.BuildMinimapButton()
     button:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("PUG Helper", 1, 1, 1)
-        GameTooltip:AddLine("Click to open / close.", 0.8, 0.8, 0.8)
-        GameTooltip:AddLine("Drag to move around the minimap.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("PUG Helper", T.rgb(T.color.text))
+        GameTooltip:AddLine("Click to open / close.", T.rgb(T.color.muted))
+        GameTooltip:AddLine("Drag to move around the minimap.", T.rgb(T.color.muted))
         GameTooltip:Show()
     end)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)

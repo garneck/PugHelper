@@ -13,19 +13,19 @@
 
 local _, ns = ...
 local UI = ns.UI
+local T  = UI.Theme   -- design tokens (colours / sizes / fonts)
 
--- Layout constants. BUTTON_H is shared with the panels (NamesPanel/EditPanel).
+-- Layout constants. BUTTON_H is shared with the panels (NamesPanel/EditPanel) and
+-- now lives on UI via Theme; the rest are window-specific.
 local FRAME_W      = 680
 local FRAME_H      = 480
 local LEFT_W       = 150       -- left list column width (scrollbar sits just right of it)
 local CONTENT_X    = 190
 local ROW_H        = 22
-local ROW_INSET    = 22
+local ROW_INSET    = 18        -- label indent = bullet x(2) + width(12) + gap(4), so wrap fills the row
 local ROW_VPAD     = 8
 local HEADER_H     = 20
 local SECTION_GAP  = 8
-local TITLE_H      = 26
-UI.BUTTON_H        = 22
 
 UI.editMode        = false
 UI.instanceButtons = {}
@@ -44,7 +44,7 @@ local dropIndicator
 local function DropIndicator()
     if not dropIndicator then
         dropIndicator = UI.scrollContent:CreateTexture(nil, "OVERLAY")
-        dropIndicator:SetColorTexture(0.4, 0.8, 1.0, 0.95)
+        dropIndicator:SetColorTexture(T.rgba(T.color.accent))
         dropIndicator:Hide()
     end
     return dropIndicator
@@ -122,7 +122,7 @@ local function sendRow(row)
     if not row.unresolved then return broadcastRow(row) end
     local resolved = ns.Chat.Substitute(row.fullText)
     if #resolved > 150 then resolved = resolved:sub(1, 150) .. "..." end
-    resolved = resolved:gsub("{(%w+)}", "|cffff8800{%1}|r")
+    resolved = resolved:gsub("{(%w+)}", T.colorize(T.color.unset, "{%1}"))
     UI.Confirm("Unset role(s): " .. row.unresolved .. "\n\nSend to "
         .. ns.Chat.ResolveChannel() .. " exactly as:\n\n" .. resolved,
         function() broadcastRow(row) end, "Send anyway")
@@ -227,18 +227,18 @@ local function AcquireRow()
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if UI.editMode then
             if self.addSection then
-                GameTooltip:AddLine("Click to add a new section", 0.6, 1, 0.6)
+                T.addLine(GameTooltip, "Click to add a new section", T.color.ok)
             elseif self.addRow then
-                GameTooltip:AddLine("Click to add a new line", 0.6, 1, 0.6)
+                T.addLine(GameTooltip, "Click to add a new line", T.color.ok)
             else
-                GameTooltip:AddLine("Click to edit  -  Right-click to delete", 0.6, 0.8, 1)
-                GameTooltip:AddLine("Drag to reorder within section  -  Ctrl-click to duplicate", 0.6, 0.8, 1)
+                T.addLine(GameTooltip, "Click to edit  -  Right-click to delete", T.color.accent)
+                T.addLine(GameTooltip, "Drag to reorder within section  -  Ctrl-click to duplicate", T.color.accent)
             end
             GameTooltip:Show()
         elseif self.fullText then
-            GameTooltip:AddLine("Click to send to " .. ns.Chat.ResolveChannel(), 0.6, 0.8, 1)
+            T.addLine(GameTooltip, "Click to send to " .. ns.Chat.ResolveChannel(), T.color.accent)
             if self.unresolved then
-                GameTooltip:AddLine("Unset: " .. self.unresolved .. " - pick names in Set Names.", 1, 0.6, 0.1, true)
+                T.addLine(GameTooltip, "Unset: " .. self.unresolved .. " - pick names in Set Names.", T.color.unset, true)
             end
             GameTooltip:Show()
         end
@@ -265,14 +265,14 @@ local function AcquireHeader()
 
     local hl = h:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints(true)
-    hl:SetColorTexture(1, 0.82, 0, 0.15)
+    hl:SetColorTexture(T.wash(T.color.title, 0.15))
 
-    local fs = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local fs = h:CreateFontString(nil, "OVERLAY", T.font.header)
     fs:SetPoint("LEFT", 2, 0)
     fs:SetPoint("RIGHT", -2, 0)
     fs:SetJustifyH("LEFT")
     fs:SetWordWrap(false)
-    fs:SetTextColor(1, 0.82, 0)
+    fs:SetTextColor(T.rgb(T.color.title))
     h.label = fs
 
     h:SetScript("OnClick", function(self, button)
@@ -311,8 +311,8 @@ local function AcquireHeader()
         end
         if not UI.editMode then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Drag to reorder  -  Click to rename  -  Right-click to delete", 1, 0.82, 0.4)
-        GameTooltip:AddLine("Ctrl-click to duplicate this section", 1, 0.82, 0.4)
+        T.addLine(GameTooltip, "Drag to reorder  -  Click to rename  -  Right-click to delete", T.color.title)
+        T.addLine(GameTooltip, "Ctrl-click to duplicate this section", T.color.title)
         GameTooltip:Show()
     end)
     h:SetScript("OnLeave", function()
@@ -358,8 +358,8 @@ end
 
 -- A line's resting bullet color: amber if it still has an unset {TOKEN}, else blue.
 local function BulletColor(row)
-    if row.unresolved then return 1, 0.6, 0.1 end
-    return 0.5, 0.7, 1.0
+    if row.unresolved then return T.rgb(T.color.unset) end
+    return T.rgb(T.color.accent)
 end
 
 -- Briefly flash a row's bullet green after a send, so a click that broadcast a
@@ -368,7 +368,7 @@ end
 function UI.FlashRow(row)
     local b = row and row.bullet
     if not b then return end
-    b:SetVertexColor(0.3, 1.0, 0.3)
+    b:SetVertexColor(T.rgb(T.color.flash))
     if not ns.api.After(0.4, function() b:SetVertexColor(BulletColor(row)) end) then
         b:SetVertexColor(BulletColor(row))
     end
@@ -403,9 +403,9 @@ function UI.Refresh(preserveEditor)
     local headerText = (inst.name or "(unnamed)")
         -- Escape any literal '|' in the note (e.g. "25-player | Phase 1") to '||',
         -- or WoW's FontString parser eats it as a stray color/escape lead.
-        .. (inst.note and ("  |cff999999" .. inst.note:gsub("|", "||") .. "|r") or "")
+        .. (inst.note and ("  " .. T.colorize(T.color.muted, inst.note:gsub("|", "||"))) or "")
     if ns.Content.HasCustom(id) then
-        headerText = headerText .. "  |cff66bb66(customized)|r"
+        headerText = headerText .. "  " .. T.colorize(T.color.ok, "(customized)")
     end
     UI.contentHeader:SetText(headerText)
 
@@ -439,7 +439,7 @@ function UI.Refresh(preserveEditor)
             row.sectionIndex = si
             row.lineIndex    = li
             row.bullet:Show()
-            row.label:SetTextColor(1, 1, 1)
+            row.label:SetTextColor(T.rgb(T.color.text))
             -- After substitution, any remaining {TOKEN} is an unset name that
             -- would be sent literally: flag the bullet amber and remember which.
             local shown = ns.Chat.Substitute(line)
@@ -449,12 +449,12 @@ function UI.Refresh(preserveEditor)
             end
             row.unresolved = unset
             if unset then
-                row.bullet:SetVertexColor(1, 0.6, 0.1)
-                -- Also tint the unfilled {TOKEN}s in the line text orange, so the
+                row.bullet:SetVertexColor(T.rgb(T.color.unset))
+                -- Also tint the unfilled {TOKEN}s in the line text amber, so the
                 -- "this will send a literal {MT}" warning isn't a color-only bullet.
-                display = shown:gsub("{(%w+)}", "|cffff8800{%1}|r")
+                display = shown:gsub("{(%w+)}", T.colorize(T.color.unset, "{%1}"))
             else
-                row.bullet:SetVertexColor(0.5, 0.7, 1.0)
+                row.bullet:SetVertexColor(T.rgb(T.color.accent))
             end
             y = y - LayoutRow(row, width, y, display)
         end
@@ -465,7 +465,7 @@ function UI.Refresh(preserveEditor)
             local empty = PrepRow(id)
             empty.bullet:Hide()
             empty:EnableMouse(false)
-            empty.label:SetTextColor(0.5, 0.5, 0.5)
+            empty.label:SetTextColor(T.rgb(T.color.faint))
             y = y - LayoutRow(empty, width, y, "(no callouts here yet - click Edit above, then \"+ Add line\")")
         end
 
@@ -475,7 +475,7 @@ function UI.Refresh(preserveEditor)
             add.sectionIndex = si
             add.lineCount    = #lines
             add.bullet:Hide()
-            add.label:SetTextColor(0.5, 1.0, 0.5)
+            add.label:SetTextColor(T.rgb(T.color.ok))
             y = y - LayoutRow(add, width, y, "+ Add line")
         end
 
@@ -486,7 +486,7 @@ function UI.Refresh(preserveEditor)
         local addSec = PrepRow(id)
         addSec.addSection = true
         addSec.bullet:Hide()
-        addSec.label:SetTextColor(0.5, 0.85, 1.0)
+        addSec.label:SetTextColor(T.rgb(T.color.accent))
         y = y - LayoutRow(addSec, width, y, "+ Add section")
         UI.addSectionRow = addSec
     end
@@ -539,9 +539,10 @@ function UI.UpdateChannelButton()
     local txt
     if loud then
         -- Whole label red so a callout pointed at SAY/GUILD is obvious at a glance.
-        txt = "|cffff6060Channel: " .. cfg .. (res ~= cfg and (" (now: " .. res .. ")") or "") .. "|r"
+        txt = T.colorize(T.color.loud, "Channel: " .. cfg .. (res ~= cfg and (" (now: " .. res .. ")") or ""))
     elseif res ~= cfg then
-        local code = (cfg == "AUTO") and "ff88dd88" or "ffffaa33"
+        -- AUTO resolved up = reassuring green; a manual channel downgraded = amber.
+        local code = (cfg == "AUTO") and T.hex(T.color.ok) or T.hex(T.color.unset)
         txt = "Channel: " .. cfg .. " |c" .. code .. "(now: " .. res .. ")|r"
     else
         txt = "Channel: " .. cfg
@@ -611,7 +612,7 @@ function UI.LayoutList(filter)
     end
     if not anyShown then
         if not UI.listEmpty then
-            UI.listEmpty = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            UI.listEmpty = parent:CreateFontString(nil, "OVERLAY", T.font.hint)
             UI.listEmpty:SetPoint("TOPLEFT", 6, -6)
             UI.listEmpty:SetWidth(LEFT_W - 12)
             UI.listEmpty:SetJustifyH("LEFT")
@@ -631,7 +632,7 @@ local function BuildList(parent)
     UI.listContent = parent
     UI.listGroups  = {}
     for _, cat in ipairs(ns.Content.Categories()) do
-        local h = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        local h = parent:CreateFontString(nil, "OVERLAY", T.font.hint)
         h:SetText(string.upper(cat.label or cat.id))
         local group = { header = h, buttons = {} }
 
@@ -641,9 +642,9 @@ local function BuildList(parent)
 
             local hl = b:CreateTexture(nil, "HIGHLIGHT")
             hl:SetAllPoints(true)
-            hl:SetColorTexture(0.3, 0.5, 0.9, 0.35)
+            hl:SetColorTexture(T.wash(T.color.accent, 0.35))
 
-            local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            local fs = b:CreateFontString(nil, "OVERLAY", T.font.body)
             fs:SetPoint("LEFT", 6, 0)
             fs:SetPoint("RIGHT", -4, 0)
             fs:SetJustifyH("LEFT")
@@ -687,22 +688,20 @@ function UI.BuildUI()
     end)
     table.insert(UISpecialFrames, "PugHelperFrame")   -- closes with Escape
 
-    UI.Background(mainFrame, 0.04, 0.04, 0.06, 0.96)
-    UI.AddBorder(mainFrame, 0.25, 0.25, 0.30, 1)
-
-    local titleBg = mainFrame:CreateTexture(nil, "ARTWORK")
-    titleBg:SetPoint("TOPLEFT", 2, -2)
-    titleBg:SetPoint("TOPRIGHT", -2, -2)
-    titleBg:SetHeight(TITLE_H)
-    titleBg:SetColorTexture(0.10, 0.10, 0.16, 1)
-
-    local title = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("LEFT", titleBg, "LEFT", 10, 0)
-    title:SetText("PUG Helper")
+    UI.PanelChrome(mainFrame)
+    UI.TitleBar(mainFrame, "PUG Helper")
 
     local close = CreateFrame("Button", nil, mainFrame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 2, 2)
     close:SetScript("OnClick", function() mainFrame:Hide() end)
+
+    -- Structure: a rule between the tab list and the message pane, so the window
+    -- reads as [nav | content] instead of two columns floating on one flat fill.
+    -- x = CONTENT_X-4 sits in the narrow gutter just right of the list scrollbar
+    -- (which ends ~x=182) and just left of the content (x=190).
+    local paneSep = UI.Divider(mainFrame, "V")
+    paneSep:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", CONTENT_X - 4, -57)
+    paneSep:SetPoint("BOTTOMLEFT", mainFrame, "BOTTOMLEFT", CONTENT_X - 4, 12)
 
     -- toolbar: channel + names (+ edit controls from EditPanel)
     local channelBtn = UI.Button(mainFrame, 210, UI.BUTTON_H, nil, nil)
@@ -715,15 +714,15 @@ function UI.BuildUI()
     -- Dynamic tooltip: rebuilt each hover so it names where a send lands right now.
     channelBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Output channel", 1, 1, 1)
+        T.addLine(GameTooltip, "Output channel", T.color.text)
         local cfg, res = ns.Config.Channel(), ns.Chat.ResolveChannel()
         if res ~= cfg then
-            GameTooltip:AddLine("Set to " .. cfg .. ", sending to " .. res .. " right now.", 0.8, 0.8, 0.8, true)
+            T.addLine(GameTooltip, "Set to " .. cfg .. ", sending to " .. res .. " right now.", T.color.muted, true)
         else
-            GameTooltip:AddLine("Sending to " .. res .. " right now.", 0.8, 0.8, 0.8, true)
+            T.addLine(GameTooltip, "Sending to " .. res .. " right now.", T.color.muted, true)
         end
-        GameTooltip:AddLine("AUTO picks RAID > PARTY > SAY. RAID_WARNING only delivers if you're raid lead/assist.", 0.8, 0.8, 0.8, true)
-        GameTooltip:AddLine("Left-click: next channel.  Right-click: previous.", 0.6, 0.8, 1)
+        T.addLine(GameTooltip, "AUTO picks RAID > PARTY > SAY. RAID_WARNING only delivers if you're raid lead/assist.", T.color.muted, true)
+        T.addLine(GameTooltip, "Left-click: next channel.  Right-click: previous.", T.color.accent)
         GameTooltip:Show()
     end)
     channelBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -745,7 +744,7 @@ function UI.BuildUI()
     local editTag = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     editTag:SetPoint("TOPRIGHT", mainFrame, "TOPRIGHT", -34, -36)
     editTag:SetText("\226\151\143 EDITING")
-    editTag:SetTextColor(1, 0.6, 0.1)
+    editTag:SetTextColor(T.rgb(T.color.unset))
     editTag:Hide()
     UI.editTag = editTag
 
@@ -758,7 +757,7 @@ function UI.BuildUI()
     -- search box above the tab list (filters the raids/heroics list as you type)
     local searchBox = UI.MakeInput(mainFrame, LEFT_W - 4, 0, nil)
     searchBox:SetPoint("TOPLEFT", 12, -58)
-    local searchHint = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local searchHint = searchBox:CreateFontString(nil, "OVERLAY", T.font.hint)
     searchHint:SetPoint("LEFT", 4, 0)
     searchHint:SetText("Search...")
     searchBox:SetScript("OnTextChanged", function(self)
@@ -791,7 +790,7 @@ function UI.BuildUI()
     contentHeader:SetText("")
     UI.contentHeader = contentHeader
 
-    local hint = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local hint = mainFrame:CreateFontString(nil, "OVERLAY", T.font.hint)
     hint:SetPoint("TOPLEFT", contentHeader, "BOTTOMLEFT", 0, -2)
     hint:SetText("Click a line to send it to the channel shown top-left. {TOKENS} like {MT} fill in from Set Names.")
     UI.hint = hint
@@ -809,7 +808,7 @@ function UI.BuildUI()
     -- click EDITS instead of sends) is unmistakable beyond the small EDITING badge.
     local editTint = scroll:CreateTexture(nil, "BACKGROUND")
     editTint:SetAllPoints(scroll)
-    editTint:SetColorTexture(1, 0.6, 0.1, 0.12)
+    editTint:SetColorTexture(T.wash(T.color.unset, 0.12))
     editTint:Hide()
     UI.editTint = editTint
 

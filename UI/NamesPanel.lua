@@ -20,6 +20,7 @@
 
 local _, ns = ...
 local UI = ns.UI
+local T  = UI.Theme   -- design tokens (colours / sizes / fonts)
 
 local STEP       = 30   -- minimum role row height (a single text line)
 local DD_W       = 100  -- dropdown selected-text width
@@ -45,7 +46,7 @@ local function InitNameDropdown(dropdown)
         UIDropDownMenu_AddButton(info)
     end
     local clearInfo = UIDropDownMenu_CreateInfo()
-    clearInfo.text         = "|cff999999(clear)|r"
+    clearInfo.text         = T.colorize(T.color.muted, "(clear)")
     clearInfo.notCheckable = true
     clearInfo.func         = function()
         ns.Config.SetName(token, "")
@@ -82,11 +83,11 @@ local function AcquireRoleRow(panel, i)
     remove:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if self.scope == "instance" then
-            GameTooltip:AddLine("Remove this custom role from this tab", 1, 0.6, 0.6)
+            T.addLine(GameTooltip, "Remove this custom role from this tab", T.color.stale)
         elseif self.scope == "global" then
-            GameTooltip:AddLine("Remove this global role from every tab", 1, 0.6, 0.6)
+            T.addLine(GameTooltip, "Remove this global role from every tab", T.color.stale)
         else
-            GameTooltip:AddLine("Hide this built-in role here (Reset roles restores it)", 1, 0.6, 0.6)
+            T.addLine(GameTooltip, "Hide this built-in role here (Reset roles restores it)", T.color.stale)
         end
         GameTooltip:Show()
     end)
@@ -136,7 +137,7 @@ function UI.RebuildRoleRows()
     -- covers the tab list while it's open).
     if panel.addHeader then
         local tab = ns.Content.InstanceName(selId, "this tab")
-        panel.addHeader:SetText("Add a custom role  |cff808080(This tab = " .. tab .. ")|r")
+        panel.addHeader:SetText("Add a custom role  " .. T.colorize(T.color.faint, "(This tab = " .. tab .. ")"))
     end
 
     local width = panel.scrollChild:GetWidth()
@@ -163,16 +164,16 @@ function UI.RebuildRoleRows()
         -- Show "(not set)" rather than a blank box; amber the label while unset, and
         -- reddish when the assigned player isn't in the current group (only while
         -- actually grouped, so pre-invite name entry isn't flagged as wrong).
-        UIDropDownMenu_SetText(row.dd, assigned ~= "" and assigned or "|cff808080(not set)|r")
-        local labelText = "|cffffd200{" .. role.key .. "}|r " .. (role.label or role.key)
+        UIDropDownMenu_SetText(row.dd, assigned ~= "" and assigned or T.colorize(T.color.faint, "(not set)"))
+        local labelText = T.colorize(T.color.title, "{" .. role.key .. "}") .. " " .. (role.label or role.key)
         if assigned == "" then
-            row.label:SetTextColor(1, 0.6, 0.1)
+            row.label:SetTextColor(T.rgb(T.color.unset))
         elseif rosterN > 1 and not roster[assigned] then
-            row.label:SetTextColor(1, 0.5, 0.5)
+            row.label:SetTextColor(T.rgb(T.color.stale))
             -- Back the reddish tint with words so the stale state isn't color-only.
-            labelText = labelText .. "  |cffff8080(assigned player not in group)|r"
+            labelText = labelText .. "  " .. T.colorize(T.color.stale, "(assigned player not in group)")
         else
-            row.label:SetTextColor(1, 1, 1)
+            row.label:SetTextColor(T.rgb(T.color.text))
         end
         row.label:SetText(labelText)
 
@@ -204,7 +205,7 @@ function UI.DeleteRoleRow(scope, token, label)
     local selId    = ns.Config.SelectedInstance()
     local namePart = (label and label ~= "" and label:upper() ~= token:upper())
         and (" (" .. label .. ")") or ""
-    local who = "|cffffd200{" .. token .. "}|r" .. namePart
+    local who = T.colorize(T.color.title, "{" .. token .. "}") .. namePart
 
     local msg, acceptText, action
     if scope == "instance" then
@@ -284,7 +285,7 @@ local function BuildAddRow(panel)
             tokenBox:ClearFocus()
             UI.RebuildRoleRows()
         elseif panel.addHeader then
-            panel.addHeader:SetText("|cffff6060" .. (reason or "Could not add role.") .. "|r")
+            panel.addHeader:SetText(T.colorize(T.color.loud, reason or "Could not add role."))
         end
     end
 end
@@ -303,21 +304,20 @@ function UI.BuildNamesPanel(parent)
     panel:SetFrameLevel(parent:GetFrameLevel() + 100)
     panel:EnableMouse(true)
 
-    UI.Background(panel, 0.05, 0.05, 0.07, 0.97)
-
-    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 14, -12)
-    title:SetText("Set Player / Role Names")
+    -- Same chrome as the window/editor so the overlay reads as one design (it
+    -- previously had a fill but no border or title strip).
+    UI.PanelChrome(panel)
+    UI.TitleBar(panel, "Set Player / Role Names")
 
     -- Close X (top-right), so leaving the overlay doesn't depend on finding "Done".
     local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 2, 2)
     close:SetScript("OnClick", function() panel:Hide(); UI.Refresh(true) end)
 
-    local help = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    help:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
+    local help = panel:CreateFontString(nil, "OVERLAY", T.font.body)
+    help:SetPoint("TOPLEFT", panel.titleBar, "BOTTOMLEFT", 12, -4)
     help:SetText("These names fill the {TOKENS} in your callouts. Pick a party/raid member for each role.")
-    help:SetTextColor(0.8, 0.8, 0.8)
+    help:SetTextColor(T.rgb(T.color.muted))
     panel.help = help   -- text becomes a solo-state hint in RebuildRoleRows
 
     BuildAddRow(panel)

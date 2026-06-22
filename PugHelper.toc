@@ -15,6 +15,7 @@ Core\Content.lua
 Core\Chat.lua
 
 # UI
+UI\Theme.lua
 UI\Helpers.lua
 UI\Window.lua
 UI\NamesPanel.lua

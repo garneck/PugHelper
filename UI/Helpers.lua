@@ -9,6 +9,7 @@
 
 local _, ns = ...
 local UI = ns.UI
+local T  = UI.Theme   -- design tokens (loaded just before this file)
 
 -- A standard UIPanelButtonTemplate button. Caller positions it (SetPoint) since
 -- placement varies. `text`/`onClick` are optional.
@@ -26,7 +27,7 @@ end
 -- window's tab search box.
 function UI.MakeInput(parent, width, maxLetters, onEnter)
     local bg = parent:CreateTexture(nil, "BORDER")
-    bg:SetColorTexture(0, 0, 0, 0.5)
+    bg:SetColorTexture(T.rgba(T.color.inputBg))
 
     local edit = CreateFrame("EditBox", nil, parent)
     edit:SetAutoFocus(false)
@@ -103,7 +104,7 @@ function UI.MakeModal(frame, anchor)
     -- nothing happens. The live dialog sits above the dim (raised on show).
     local dim = blocker:CreateTexture(nil, "BACKGROUND")
     dim:SetAllPoints(blocker)
-    dim:SetColorTexture(0, 0, 0, 0.45)
+    dim:SetColorTexture(T.rgba(T.color.modalDim))
     blocker:Hide()
     frame:SetFrameLevel(blocker:GetFrameLevel() + 10)
     frame:HookScript("OnShow", function(self) blocker:Show(); blocker:Raise(); self:Raise() end)
@@ -131,8 +132,7 @@ function UI.Confirm(message, onAccept, acceptText)
         d:SetPoint("CENTER")
         d:EnableMouse(true)
         table.insert(UISpecialFrames, "PugHelperConfirmDialog")
-        UI.Background(d, 0.06, 0.06, 0.09, 0.98)
-        UI.AddBorder(d, 0.40, 0.40, 0.50, 1)
+        UI.PanelChrome(d)
         UI.MakeModal(d)
 
         local msg = d:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -181,4 +181,43 @@ function UI.AddBorder(frame, r, g, b, a)
     local bot = edge(); bot:SetPoint("BOTTOMLEFT"); bot:SetPoint("BOTTOMRIGHT"); bot:SetHeight(2)
     local lft = edge(); lft:SetPoint("TOPLEFT"); lft:SetPoint("BOTTOMLEFT"); lft:SetWidth(2)
     local rgt = edge(); rgt:SetPoint("TOPRIGHT"); rgt:SetPoint("BOTTOMRIGHT"); rgt:SetWidth(2)
+end
+
+-- Standard panel chrome in one call: the shared dark fill + 2px border, from the
+-- theme tokens. Every floating surface (window, editor popup, Set Names overlay,
+-- confirm dialog) uses this so they all read as one design - no per-file colours.
+function UI.PanelChrome(frame)
+    UI.Background(frame, T.rgba(T.color.panelBg))
+    UI.AddBorder(frame, T.rgba(T.color.panelBorder))
+end
+
+-- A title-bar strip + title text across the top of a panel, matching the main
+-- window header. Returns the title FontString (so the caller can re-Set its text,
+-- e.g. the editor popup whose title changes per action). Texture-based, no
+-- :SetBackdrop - consistent with the rest of the UI.
+function UI.TitleBar(frame, text)
+    local bar = frame:CreateTexture(nil, "ARTWORK")
+    bar:SetPoint("TOPLEFT", T.size.inset, -T.size.inset)
+    bar:SetPoint("TOPRIGHT", -T.size.inset, -T.size.inset)
+    bar:SetHeight(T.size.titleH)
+    bar:SetColorTexture(T.rgba(T.color.titleBg))
+    frame.titleBar = bar
+
+    local fs = frame:CreateFontString(nil, "OVERLAY", T.font.title)
+    fs:SetPoint("LEFT", bar, "LEFT", 10, 0)
+    fs:SetTextColor(T.rgb(T.color.title))
+    if text then fs:SetText(text) end
+    frame.titleText = fs
+    return fs
+end
+
+-- A thin 1px divider line in the theme's divider colour. `orient` is "H"
+-- (horizontal, the caller anchors TOPLEFT+TOPRIGHT) or "V" (vertical, anchor
+-- TOPLEFT+BOTTOMLEFT). Used to separate the toolbar from the content and the tab
+-- list from the message pane, giving the window a framed, app-like structure.
+function UI.Divider(frame, orient)
+    local t = frame:CreateTexture(nil, "ARTWORK")
+    t:SetColorTexture(T.rgba(T.color.divider))
+    if orient == "V" then t:SetWidth(1) else t:SetHeight(1) end
+    return t
 end

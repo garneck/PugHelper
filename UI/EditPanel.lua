@@ -14,6 +14,7 @@
 
 local _, ns = ...
 local UI = ns.UI
+local T  = UI.Theme   -- design tokens (colours / sizes / fonts)
 
 -- ---------------------------------------------------------------------------
 --  Shared edit popup (built once, reused for edit + add)
@@ -28,19 +29,15 @@ local function BuildPopup()
     p:EnableMouse(true)
     p:SetFrameLevel(UI.frame:GetFrameLevel() + 200)
 
-    UI.Background(p, 0.05, 0.05, 0.08, 0.98)
-    UI.AddBorder(p, 0.3, 0.3, 0.36, 1)
-
-    local title = p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 14, -12)
-    p.title = title
+    UI.PanelChrome(p)
+    p.title = UI.TitleBar(p)   -- text is set per action in OpenPopup
 
     -- Edit box with its own dark inset background for readability. The bottom
     -- anchor is re-set per OpenPopup so the live preview can sit below it.
     local boxBg = p:CreateTexture(nil, "BORDER")
     boxBg:SetPoint("TOPLEFT", 12, -40)
     boxBg:SetPoint("BOTTOMRIGHT", -12, 92)
-    boxBg:SetColorTexture(0, 0, 0, 0.5)
+    boxBg:SetColorTexture(T.rgba(T.color.inputBg))
     p.boxBg = boxBg
 
     -- Single-line: a callout IS one chat line (newlines get collapsed anyway), so
@@ -62,7 +59,7 @@ local function BuildPopup()
 
     -- Live preview of the resolved callout (tokens filled from Set Names; any
     -- still-unset {TOKEN} highlighted). Shown only for line edit/add.
-    local previewCap = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local previewCap = p:CreateFontString(nil, "OVERLAY", T.font.hint)
     previewCap:SetPoint("TOPLEFT", boxBg, "BOTTOMLEFT", 2, -6)
     previewCap:SetText("Preview")
     p.previewCap = previewCap
@@ -81,7 +78,7 @@ local function BuildPopup()
         local raw = self:GetText()
         if #raw > 160 then raw = raw:sub(1, 160) .. "..." end
         local resolved = ns.Chat.Substitute(raw)
-        resolved = resolved:gsub("{(%w+)}", "|cffff8800{%1}|r")
+        resolved = resolved:gsub("{(%w+)}", T.colorize(T.color.unset, "{%1}"))
         previewText:SetText(resolved)
     end)
 
@@ -156,7 +153,7 @@ function UI.DeleteLine(instanceId, sectionIndex, lineIndex, preview)
     preview = tostring(preview or "")
     if #preview > 120 then preview = preview:sub(1, 120) .. "..." end
     local msg = "Delete this line?"
-    if preview ~= "" then msg = msg .. "\n\n|cffffd200" .. preview .. "|r" end
+    if preview ~= "" then msg = msg .. "\n\n" .. T.colorize(T.color.title, preview) end
     UI.Confirm(msg, function()
         ns.Content.DeleteLine(instanceId, sectionIndex, lineIndex)
         UI.Refresh()
