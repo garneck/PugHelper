@@ -321,12 +321,19 @@ end
 -- Rebuild the right-hand pane for the currently selected instance (effective
 -- content). In edit mode each section gets a trailing "+ Add line" row, section
 -- headers become clickable (rename/delete), and an "+ Add section" row is added.
-function UI.Refresh()
+function UI.Refresh(preserveEditor)
     local sc = UI.scrollContent
     if not sc then return end
-    -- Any rebuild (edit, tab switch, reset, toggle) invalidates the editor
-    -- popup's target indices, so dismiss it rather than let Save misfire.
-    if UI.CloseEditPopup then UI.CloseEditPopup() end
+    -- A structural rebuild (edit, tab switch, reset, toggle) invalidates the
+    -- editor popup's target indices, so dismiss it rather than let Save misfire.
+    -- A cosmetic refresh (resize, name set) passes preserveEditor to leave an open
+    -- edit in place, since it changes no content the popup is bound to.
+    if not preserveEditor and UI.CloseEditPopup then UI.CloseEditPopup() end
+    -- A full rebuild also invalidates the display indices any in-flight drag was
+    -- started against, so abandon a drag still marked active (e.g. a resize-driven
+    -- refresh that fired mid-drag) instead of leaving the pane in phantom-drag mode.
+    UI.drag, UI.lineDrag = nil, nil
+    ClearDrop()
     ReleasePool()
 
     local id   = ns.Config.SelectedInstance()
@@ -587,6 +594,10 @@ function UI.BuildUI()
     mainFrame:RegisterForDrag("LeftButton")
     mainFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     mainFrame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); SavePoint() end)
+    -- A confirm dialog lives at UIParent (so it floats above everything), so an
+    -- Escape-close of the window would otherwise strand it on screen; hide it
+    -- whenever the window hides.
+    mainFrame:SetScript("OnHide", function() if UI.HideConfirm then UI.HideConfirm() end end)
     table.insert(UISpecialFrames, "PugHelperFrame")   -- closes with Escape
 
     UI.Background(mainFrame, 0.04, 0.04, 0.06, 0.96)
@@ -708,7 +719,7 @@ function UI.BuildUI()
     scroll:SetScript("OnSizeChanged", function(_, w)
         if w and w > 1 then
             UI.scrollContent:SetWidth(w)
-            UI.Refresh()
+            UI.Refresh(true)   -- preserve any open edit across a resize
         end
     end)
     UI.EnableWheel(scroll, 40)

@@ -69,11 +69,21 @@ end
 -- preview so both wrap text identically. Empty input yields an empty list.
 function util.wrap(text, maxChars)
     local lines = {}
-    text = tostring(text or "")
+    text = tostring(text or ""):gsub("^%s+", "")   -- a leading run would emit an empty first chunk
     while #text > maxChars do
         local slice = text:sub(1, maxChars)
-        local sp = slice:match(".*()%s")          -- index of last whitespace
-        local cut = (sp and sp - 1) or maxChars    -- no space to break on: hard-cut
+        local sp = slice:match(".*()%s")           -- index of last whitespace
+        local cut = (sp and sp - 1) or maxChars     -- no space to break on: hard-cut
+        if not sp then
+            -- # and string.sub are byte-based here, so a hard-cut can land inside a
+            -- multibyte UTF-8 character. Back the cut off while the next byte is a
+            -- continuation byte (0x80-0xBF) so a glyph is never split; stays <= maxChars.
+            while cut > 1 do
+                local b = text:byte(cut + 1)
+                if not b or b < 128 or b >= 192 then break end
+                cut = cut - 1
+            end
+        end
         table.insert(lines, text:sub(1, cut))
         text = text:sub(cut + 1):gsub("^%s+", "")
     end

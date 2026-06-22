@@ -45,6 +45,7 @@ read_globals = {
     -- Group / roster state
     "IsInRaid",
     "IsInGroup",
+    "IsInGuild",          -- guild-membership check, GUILD channel downgrade (Core/Api.lua)
     "GetNumRaidMembers",
     "GetNumPartyMembers",
     "GetNumGroupMembers",

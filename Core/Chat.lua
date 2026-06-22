@@ -29,16 +29,17 @@ local function bestAvailable()
     return "SAY"
 end
 
--- Resolve the configured channel to one valid for the CURRENT group state.
--- AUTO picks the best available; a manual RAID/RAID_WARNING/PARTY override is
--- quietly downgraded when you're not in such a group, so sending never errors
--- with "You are not in a raid/party group".
+-- Resolve the configured channel to one valid for the CURRENT state. AUTO picks
+-- the best available; a manual RAID/RAID_WARNING/PARTY/GUILD override is quietly
+-- downgraded when you're not in such a group/guild, so sending never errors with
+-- "You are not in a raid/party group" or "You are not in a guild".
 function Chat.ResolveChannel()
     local ch = Config.Channel()
     if ch == "AUTO" then return bestAvailable() end
     local requires = Config.CHANNEL_REQUIRES[ch]
-    if requires == "raid" and not api.InRaid() then return bestAvailable() end
+    if requires == "raid"  and not api.InRaid()  then return bestAvailable() end
     if requires == "group" and not api.InGroup() then return "SAY" end
+    if requires == "guild" and not api.InGuild() then return bestAvailable() end
     return ch
 end
 

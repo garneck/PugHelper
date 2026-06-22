@@ -36,7 +36,7 @@ Config.CHANNELS = {
     { name = "RAID_WARNING", requires = "raid"  },
     { name = "PARTY",        requires = "group" },
     { name = "SAY" },
-    { name = "GUILD" },
+    { name = "GUILD",        requires = "guild" },
 }
 
 Config.CHANNEL_NAMES, Config.CHANNEL_REQUIRES, Config.CHANNEL_INDEX = {}, {}, {}
@@ -60,7 +60,12 @@ end
 --  Channel
 -- ---------------------------------------------------------------------------
 function Config.Channel()
-    return (PugHelperDB and PugHelperDB.channel) or "AUTO"
+    -- Self-heal a stale/invalid saved channel (a name removed across versions, or
+    -- a hand-edited save) so ResolveChannel never hands an unknown channel to
+    -- SendChatMessage, which would error.
+    local c = PugHelperDB and PugHelperDB.channel
+    if Config.IsChannel(c) then return c end
+    return "AUTO"
 end
 
 function Config.IsChannel(name)
@@ -92,12 +97,17 @@ function Config.Names()
     return PugHelperDB.names
 end
 
+-- Tokens are case-insensitive. Every write path already stores them uppercase
+-- (built-in role keys, /pug name, custom roles), so normalize on read/write here
+-- too - this is what lets a callout written with a lowercase {mt} fill in from a
+-- name set under MT instead of being sent to chat literally. Idempotent for the
+-- existing uppercase callers.
 function Config.GetName(token)
-    return Config.Names()[token]
+    return Config.Names()[tostring(token or ""):upper()]
 end
 
 function Config.SetName(token, value)
-    Config.Names()[token] = value or ""
+    Config.Names()[tostring(token or ""):upper()] = value or ""
 end
 
 -- Drop every saved name whose token `keep(token)` returns falsy. The pruning

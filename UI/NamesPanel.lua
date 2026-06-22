@@ -321,7 +321,7 @@ function UI.BuildNamesPanel(parent)
 
     local done = UI.Button(panel, 90, UI.BUTTON_H, "Done", function()
         panel:Hide()
-        UI.Refresh()
+        UI.Refresh(true)   -- closing Set Names changes no callout content
     end)
     done:SetPoint("BOTTOMRIGHT", -14, 12)
 

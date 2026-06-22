@@ -82,8 +82,25 @@ function UI.EnableWheel(scrollFrame, step)
     end)
 end
 
+-- Make `frame` modal: a full-screen, mouse-eating blocker sits just under it
+-- whenever it is shown, so nothing behind it stays clickable (e.g. an editor
+-- popup's Save can't be hit through a confirm dialog, and vice-versa). The
+-- blocker tracks the frame's own show/hide. Texture-light, no new API.
+function UI.MakeModal(frame)
+    local blocker = CreateFrame("Frame", nil, UIParent)
+    blocker:SetFrameStrata(frame:GetFrameStrata())
+    blocker:SetAllPoints(UIParent)
+    blocker:EnableMouse(true)
+    blocker:Hide()
+    frame:SetFrameLevel(blocker:GetFrameLevel() + 10)
+    frame:HookScript("OnShow", function(self) blocker:Show(); self:Raise() end)
+    frame:HookScript("OnHide", function() blocker:Hide() end)
+    return blocker
+end
+
 -- A shared yes/no confirmation modal, built once and reused. Sits at
--- FULLSCREEN_DIALOG strata so it floats above the window and its overlays.
+-- FULLSCREEN_DIALOG strata so it floats above the window and its overlays, with a
+-- modal blocker (UI.MakeModal) so buttons behind it can't be clicked.
 -- `onAccept` runs only if the user confirms; `acceptText` labels that button
 -- (e.g. "Delete", "Reset"). Texture-based and template-light, like the rest of
 -- the UI. Used for destructive actions (deleting callout lines/sections,
@@ -99,6 +116,7 @@ function UI.Confirm(message, onAccept, acceptText)
         d:EnableMouse(true)
         UI.Background(d, 0.06, 0.06, 0.09, 0.98)
         UI.AddBorder(d, 0.40, 0.40, 0.50, 1)
+        UI.MakeModal(d)
 
         local msg = d:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         msg:SetPoint("TOPLEFT", 18, -20)
@@ -125,6 +143,13 @@ function UI.Confirm(message, onAccept, acceptText)
     d.accept:SetText(acceptText or "Confirm")
     d:Show()
     d:Raise()
+end
+
+-- Hide the shared confirm dialog (its OnHide drops the modal blocker too). Called
+-- when the main window hides so a confirm - which lives at UIParent, not under the
+-- window - can't be stranded on screen (e.g. after Escape closes the window).
+function UI.HideConfirm()
+    if confirmDialog then confirmDialog:Hide() end
 end
 
 -- Add a 2px texture border (top/bottom/left/right) around a frame. Texture-based

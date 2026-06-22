@@ -156,7 +156,7 @@ end
 
 -- The full ordered role list to offer for name assignment on the given tab:
 -- built-ins, then global custom roles, then this instance's custom roles, minus
--- anything hidden on this tab. Each entry is tagged { key, label, scope,
+-- any built-in hidden on this tab. Each entry is tagged { key, label, scope,
 -- instanceId } so the UI knows the token, its display label, and how to delete
 -- it (custom -> remove; built-in -> hide). Deduped by uppercased token (first
 -- occurrence wins) so a stray collision never shows the same token twice. Single
@@ -168,7 +168,14 @@ function Content.EffectiveRoles(instanceId)
     local function add(role, scope, owner)
         local key = tostring(role.key)
         local up  = key:upper()
-        if seen[up] or (hidden and hidden[up]) then return end
+        if seen[up] then return end
+        -- `hidden` only ever holds built-in tokens (HideRole is its lone writer,
+        -- and the UI only hides built-ins). Scope the suppression to built-ins so
+        -- a user can re-add their OWN role under a token whose built-in they hid -
+        -- otherwise that custom role would pass AddCustomRole's duplicate check
+        -- (which consults this list) yet be filtered straight back out here, going
+        -- invisible with no feedback.
+        if scope == "builtin" and hidden and hidden[up] then return end
         seen[up] = true
         table.insert(out, { key = key, label = role.label or key, scope = scope, instanceId = owner })
     end

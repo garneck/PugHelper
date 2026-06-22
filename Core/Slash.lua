@@ -37,7 +37,7 @@ function Slash.Handle(msg)
                 ns.Print("Cleared {" .. token .. "}")
             end
             ns.UI.RefreshNamesPanel()
-            if ns.UI.frame and ns.UI.frame:IsShown() then ns.UI.Refresh() end
+            if ns.UI.frame and ns.UI.frame:IsShown() then ns.UI.Refresh(true) end
         end
 
     elseif cmd == "names" then

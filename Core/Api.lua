@@ -79,6 +79,14 @@ function api.GroupRoster()
     return names
 end
 
+-- True if the player is in a guild. Lets Chat.ResolveChannel downgrade a manual
+-- GUILD channel selection when guildless, so a send never errors with "You are
+-- not in a guild". Guarded + safe default like the group shims above.
+function api.InGuild()
+    if api.has("IsInGuild") then return IsInGuild() end
+    return false
+end
+
 -- ---------------------------------------------------------------------------
 --  Modifier keys
 -- ---------------------------------------------------------------------------

@@ -19,6 +19,11 @@ local UI = ns.UI
 local RADIUS = 80   -- distance of the button center from the minimap center
 local button
 
+-- math.atan2 was removed from WoW's Lua in 8.0; the Classic-era/Anniversary
+-- client (post-8.0 engine) only has math.atan, which now takes the optional
+-- second arg. Pick whichever exists so the drag math never calls a nil global.
+local atan2 = math.atan2 or math.atan
+
 -- Place the button on the ring at the saved angle (degrees).
 local function positionButton()
     if not button then return end
@@ -32,7 +37,7 @@ local function dragUpdate()
     local scale = Minimap:GetEffectiveScale()
     local cx, cy = GetCursorPosition()
     cx, cy = cx / scale, cy / scale
-    ns.Config.SetMinimapAngle(math.deg(math.atan2(cy - my, cx - mx)))
+    ns.Config.SetMinimapAngle(math.deg(atan2(cy - my, cx - mx)))
     positionButton()
 end
 

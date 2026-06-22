@@ -85,6 +85,12 @@ local function BuildPopup()
     local cancel = UI.Button(p, 90, UI.BUTTON_H, "Cancel", function() p:Hide() end)
     cancel:SetPoint("RIGHT", save, "LEFT", -8, 0)
 
+    -- Modal: while the editor is open nothing behind it is clickable, so an
+    -- unrelated gesture (deleting another line, switching tab, Set Names, etc.)
+    -- can't trigger a refresh that silently discards the in-progress edit. The
+    -- user must Save, Cancel, or Escape first.
+    UI.MakeModal(p)
+
     p:Hide()
     return p
 end
