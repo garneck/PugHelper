@@ -26,6 +26,17 @@ function Slash.Handle(msg)
         ns.UI.Open()
         if not ns.UI.editMode then ns.UI.ToggleEdit() end
 
+    elseif cmd == "send" then
+        -- What the per-line "drag to action bar" macros run (see Core/Macro.lua):
+        -- broadcast the RAW callout text, substituting {TOKENS} and resolving the
+        -- channel live, exactly like clicking the line in the window. Also handy by
+        -- hand, e.g. /pug send Pull in 5.
+        if rest == "" then
+            ns.Print("Usage: /pug send <text>   (broadcasts a callout now; this is what the drag-to-bar line macros run)")
+        else
+            ns.Chat.SendLine(rest)
+        end
+
     elseif cmd == "name" then
         -- "TOKEN value" or just "TOKEN" (value defaults to "" -> clears the name).
         local token, value = rest:match("^(%S+)%s*(.*)$")
@@ -93,6 +104,7 @@ function Slash.Handle(msg)
         ns.Print("Commands:")
         ns.Print("  /pug                 - open/close the window (or click the minimap button)")
         ns.Print("  /pug edit            - toggle in-game callout editing")
+        ns.Print("  /pug send <text>     - broadcast a callout now (what the drag-to-bar line macros run)")
         ns.Print("  /pug name MT Name    - assign a player to a {TOKEN} (letters/numbers only)")
         ns.Print("  /pug names           - list current name assignments")
         ns.Print("  /pug channel RAID    - set channel (AUTO/RAID/RAID_WARNING/PARTY/SAY/GUILD)")

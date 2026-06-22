@@ -42,6 +42,13 @@ read_globals = {
     "UIDropDownMenu_SetText",
     -- Chat
     "SendChatMessage",
+    -- Macros (drag a callout line to the action bar; all guarded, Core/Macro.lua)
+    "CreateMacro",
+    "EditMacro",
+    "GetMacroIndexByName",
+    "PickupMacro",
+    -- Combat lockdown (block macro-to-bar drops mid-fight; Core/Api.lua)
+    "InCombatLockdown",
     -- Group / roster state
     "IsInRaid",
     "IsInGroup",

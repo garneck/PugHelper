@@ -31,8 +31,10 @@ local DEFAULTS = {
     -- Minimap launcher button: angle (degrees) around the ring + a hidden flag.
     minimap = { angle = 220, hide = false },
     -- One-time UI tips already shown (so they print once, ever). e.g. the edit-mode
-    -- gesture tip on first entering Edit.
-    editTipShown = false,
+    -- gesture tip on first entering Edit, or the drag-a-line-to-the-action-bar tip
+    -- the first time a callout macro is picked up.
+    editTipShown  = false,
+    macroTipShown = false,
 }
 
 -- Output channels in cycle order, defined in ONE place. `requires` is the group
@@ -239,4 +241,12 @@ end
 
 function Config.SetEditTipShown(shown)
     if PugHelperDB then PugHelperDB.editTipShown = shown and true or false end
+end
+
+function Config.MacroTipShown()
+    return PugHelperDB and PugHelperDB.macroTipShown and true or false
+end
+
+function Config.SetMacroTipShown(shown)
+    if PugHelperDB then PugHelperDB.macroTipShown = shown and true or false end
 end

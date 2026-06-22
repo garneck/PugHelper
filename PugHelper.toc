@@ -13,6 +13,7 @@ Core\Api.lua
 Core\Config.lua
 Core\Content.lua
 Core\Chat.lua
+Core\Macro.lua
 
 # UI
 UI\Theme.lua

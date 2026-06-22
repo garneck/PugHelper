@@ -25,6 +25,7 @@ ns.api     = ns.api     or {}   -- WoW API compat shims (Api.lua)
 ns.Config  = ns.Config  or {}   -- saved variables / settings (Config.lua)
 ns.Content = ns.Content or {}   -- callout registry + override merge (Content.lua)
 ns.Chat    = ns.Chat    or {}   -- substitution / channel / send (Chat.lua)
+ns.Macro   = ns.Macro   or {}   -- drag-a-callout-to-the-action-bar macros (Macro.lua)
 ns.UI      = ns.UI      or {}   -- window, panels, editor (UI/*.lua)
 ns.Slash   = ns.Slash   or {}   -- /pug command handling (Slash.lua)
 

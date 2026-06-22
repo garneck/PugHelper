@@ -26,6 +26,8 @@ local ROW_INSET    = 18        -- label indent = bullet x(2) + width(12) + gap(4
 local ROW_VPAD     = 8
 local HEADER_H     = 20
 local SECTION_GAP  = 8
+local GRIP_W       = 16        -- per-line "drag to action bar" macro handle (right edge)
+local GRIP_RESERVE = GRIP_W + 6 -- right margin a line row gives the grip so text doesn't run under it
 
 UI.editMode        = false
 UI.instanceButtons = {}
@@ -129,6 +131,24 @@ local function sendRow(row)
         function() broadcastRow(row) end, "Send anyway")
 end
 
+-- Pick up the row's callout as a draggable macro so it can be dropped on an
+-- action-bar slot (one click then broadcasts the line). Shared by the grip's
+-- click and drag handlers. On success, a once-ever chat tip explains the gesture;
+-- on failure, Macro.Explain says why (combat, too long, macro list full).
+local function pickupRowMacro(row)
+    if not row or not row.fullText then return end
+    if not (ns.Macro and ns.Macro.PickupForLine) then return end
+    local ok, reason = ns.Macro.PickupForLine(row.fullText)
+    if ok then
+        if not ns.Config.MacroTipShown() then
+            ns.Config.SetMacroTipShown(true)
+            ns.Print("Drop it on an action-bar slot (before the pull - bars lock during combat) for a one-click callout button. It's a snapshot of the line: edit the line, then drag again to place an updated button. Old macros stay in /macro - delete them there if your list fills.")
+        end
+    else
+        ns.Macro.Explain(reason)
+    end
+end
+
 local function AcquireRow()
     rowCursor = rowCursor + 1
     local b = rowPool[rowCursor]
@@ -157,6 +177,61 @@ local function AcquireRow()
     fs:SetJustifyV("TOP")
     fs:SetWordWrap(true)
     b.label = fs
+
+    -- A small drag handle at the row's right edge that turns this line into a WoW
+    -- macro: drag it onto an action-bar slot (or click to put it on the cursor)
+    -- for a one-click broadcast. Shown only in normal mode on real callout lines
+    -- (PrepRow hides it; Refresh shows it) so it never clashes with edit-mode's
+    -- drag-to-reorder. As a child Button it eats its own clicks, so using the grip
+    -- never also triggers the row's send-on-click.
+    local grip = CreateFrame("Button", nil, b)
+    grip:SetSize(GRIP_W, GRIP_W)
+    grip:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -3)
+    grip:RegisterForClicks("LeftButtonUp")
+    grip:RegisterForDrag("LeftButton")
+    grip:Hide()
+
+    local gicon = grip:CreateTexture(nil, "ARTWORK")
+    gicon:SetAllPoints(true)
+    gicon:SetTexture("Interface\\Icons\\" .. (ns.Macro.ICON or "INV_MISC_QUESTIONMARK"))
+    gicon:SetAlpha(0.6)   -- a secondary affordance: dim at rest, full on hover
+    grip.icon = gicon
+
+    local ghl = grip:CreateTexture(nil, "HIGHLIGHT")
+    ghl:SetAllPoints(true)
+    ghl:SetColorTexture(T.wash(T.color.accent, 0.3))
+
+    grip.row = b
+    grip:SetScript("OnClick", function(self) pickupRowMacro(self.row) end)
+    grip:SetScript("OnDragStart", function(self) pickupRowMacro(self.row) end)
+    grip:SetScript("OnEnter", function(self)
+        self.icon:SetAlpha(1)
+        local row = self.row
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        T.addLine(GameTooltip, "Drag to your action bar", T.color.accent)
+        T.addLine(GameTooltip, "Makes a one-click macro that sends this callout to "
+            .. ns.Chat.ResolveChannel() .. ".", T.color.muted, true)
+        -- Mirror the in-window click's unset-token guard: a bar button has no
+        -- confirm at click time, so a macro made from a line with an unset {TOKEN}
+        -- would broadcast it LITERALLY. Warn here, where the user decides to make
+        -- the button; a fully-resolved line gets the reassuring "fills in live" note.
+        if row and row.unresolved then
+            T.addLine(GameTooltip, "Unset: " .. row.unresolved
+                .. " - the button will send these literally until you assign names in Set Names.",
+                T.color.unset, true)
+        else
+            T.addLine(GameTooltip, "Names fill in live when the button is pressed.", T.color.muted, true)
+        end
+        if row and row.fullText and ns.Macro.Fits and not ns.Macro.Fits(row.fullText) then
+            T.addLine(GameTooltip, "This callout is too long to fit in a macro.", T.color.loud, true)
+        end
+        GameTooltip:Show()
+    end)
+    grip:SetScript("OnLeave", function(self)
+        self.icon:SetAlpha(0.6)
+        GameTooltip:Hide()
+    end)
+    b.grip = grip
 
     b:SetScript("OnClick", function(self, button)
         if UI.editMode then
@@ -333,11 +408,11 @@ end
 
 -- Position a row, set its (already-styled) label width FIRST, then its text, so
 -- GetStringHeight reflects the wrapped height. Returns the row height.
-local function LayoutRow(row, width, y, text)
+local function LayoutRow(row, width, y, text, rightReserve)
     row:ClearAllPoints()
     row:SetPoint("TOPLEFT", 6, y)
     row:SetWidth(width - 12)
-    row.label:SetWidth((width - 12) - ROW_INSET)
+    row.label:SetWidth((width - 12) - ROW_INSET - (rightReserve or 0))
     row.label:SetText(text)
     local rowH = math.max(row.label:GetStringHeight() + ROW_VPAD, ROW_H)
     row:SetHeight(rowH)
@@ -347,6 +422,7 @@ end
 -- Reset a pooled row's per-render fields, then style + position it as a line.
 local function PrepRow(id)
     local row = AcquireRow()
+    if row.grip then row.grip:Hide() end   -- shown per-render only for normal-mode line rows
     row.addRow, row.addSection = nil, nil
     row.fullText, row.lineIndex, row.sectionIndex = nil, nil, nil
     row.unresolved, row.lineCount = nil, nil
@@ -462,7 +538,15 @@ function UI.Refresh(preserveEditor)
             else
                 row.bullet:SetVertexColor(T.rgb(T.color.accent))
             end
-            y = y - LayoutRow(row, width, y, display)
+            -- Normal mode only: show the drag-to-action-bar macro handle and
+            -- reserve room on the right so the wrapped text doesn't run under it.
+            -- (Edit mode owns the row's drag gesture for reordering.)
+            local reserve = 0
+            if not UI.editMode and row.grip then
+                row.grip:Show()
+                reserve = GRIP_RESERVE
+            end
+            y = y - LayoutRow(row, width, y, display, reserve)
         end
 
         -- Empty boss in normal mode: a dim, non-clickable nudge toward Edit (edit
@@ -504,7 +588,7 @@ function UI.Refresh(preserveEditor)
         if totalLines == 0 then
             UI.hint:SetText("This tab ships blank - add your own callouts: turn on Edit (top toolbar), then \"+ Add line\". Click a line to broadcast it.")
         else
-            UI.hint:SetText("Click a line to send it to the channel shown top-left. {TOKENS} like {MT} fill in from Set Names.")
+            UI.hint:SetText("Click a line to send it; drag the handle on its right onto an action bar for a one-click macro. {TOKENS} fill in from Set Names.")
         end
     end
     -- The "(customized)" badge is always visible; keep its Reset remedy reachable.

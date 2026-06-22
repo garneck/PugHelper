@@ -112,6 +112,18 @@ function api.ControlDown()
 end
 
 -- ---------------------------------------------------------------------------
+--  Combat state
+-- ---------------------------------------------------------------------------
+-- True while secure frames are locked for combat. Used to block dragging a
+-- callout macro onto an action bar mid-fight: placing onto a bar is a protected
+-- action and would silently fail, stranding a macro on the cursor. Safe default
+-- (false) if the API is somehow absent, so the gesture simply isn't blocked.
+function api.InCombat()
+    if api.has("InCombatLockdown") then return InCombatLockdown() end
+    return false
+end
+
+-- ---------------------------------------------------------------------------
 --  Timers
 -- ---------------------------------------------------------------------------
 -- Run fn after `delay` seconds via C_Timer if present; returns true if scheduled,
