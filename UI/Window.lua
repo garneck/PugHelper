@@ -120,9 +120,10 @@ end
 -- A fully-resolved line sends straight through on a single click.
 local function sendRow(row)
     if not row.unresolved then return broadcastRow(row) end
-    local resolved = ns.Chat.Substitute(row.fullText)
-    if #resolved > 150 then resolved = resolved:sub(1, 150) .. "..." end
-    resolved = resolved:gsub("{(%w+)}", T.colorize(T.color.unset, "{%1}"))
+    local resolved = ns.util.truncate(ns.Chat.Substitute(row.fullText), 150)
+    -- Escape '|' before the token-tint (so colorize's own |c..|r survive) so a
+    -- pipe in the callout can't corrupt the confirm dialog's preview.
+    resolved = ns.util.escapePipes(resolved):gsub("{(%w+)}", T.colorize(T.color.unset, "{%1}"))
     UI.Confirm("Unset role(s): " .. row.unresolved .. "\n\nSend to "
         .. ns.Chat.ResolveChannel() .. " exactly as:\n\n" .. resolved,
         function() broadcastRow(row) end, "Send anyway")
@@ -403,7 +404,7 @@ function UI.Refresh(preserveEditor)
     local headerText = (inst.name or "(unnamed)")
         -- Escape any literal '|' in the note (e.g. "25-player | Phase 1") to '||',
         -- or WoW's FontString parser eats it as a stray color/escape lead.
-        .. (inst.note and ("  " .. T.colorize(T.color.muted, inst.note:gsub("|", "||"))) or "")
+        .. (inst.note and ("  " .. T.colorize(T.color.muted, ns.util.escapePipes(inst.note))) or "")
     if ns.Content.HasCustom(id) then
         headerText = headerText .. "  " .. T.colorize(T.color.ok, "(customized)")
     end
@@ -426,7 +427,9 @@ function UI.Refresh(preserveEditor)
         h.instanceId   = id
         h.sectionIndex = si
         h.titleText    = section.title or ""
-        h.label:SetText(section.title or "")
+        -- Escape '|' for display so a pipe in a renamed title isn't eaten as a
+        -- FontString escape lead; titleText stays raw so the rename editor round-trips.
+        h.label:SetText(ns.util.escapePipes(section.title or ""))
         h.label:SetAlpha(1)
         UI.sectionHeaders[si] = h
         y = y - HEADER_H
@@ -443,16 +446,19 @@ function UI.Refresh(preserveEditor)
             -- After substitution, any remaining {TOKEN} is an unset name that
             -- would be sent literally: flag the bullet amber and remember which.
             local shown = ns.Chat.Substitute(line)
-            local unset, display = nil, shown
+            local unset = nil
             for tok in shown:gmatch("{(%w+)}") do
                 unset = unset and (unset .. ", {" .. tok .. "}") or ("{" .. tok .. "}")
             end
             row.unresolved = unset
+            -- Escape '|' for display so a pipe in the callout isn't eaten as a
+            -- FontString escape lead; row.fullText (what's sent) stays untouched.
+            local display = ns.util.escapePipes(shown)
             if unset then
                 row.bullet:SetVertexColor(T.rgb(T.color.unset))
                 -- Also tint the unfilled {TOKEN}s in the line text amber, so the
                 -- "this will send a literal {MT}" warning isn't a color-only bullet.
-                display = shown:gsub("{(%w+)}", T.colorize(T.color.unset, "{%1}"))
+                display = display:gsub("{(%w+)}", T.colorize(T.color.unset, "{%1}"))
             else
                 row.bullet:SetVertexColor(T.rgb(T.color.accent))
             end
@@ -685,6 +691,10 @@ function UI.BuildUI()
         -- Close the editor popup too (it's a child of this frame): clears its shown
         -- flag so a reopen doesn't briefly re-show it, and drops its modal blocker.
         if UI.CloseEditPopup then UI.CloseEditPopup() end
+        -- Same for the Set Names overlay: as a child it only hides visually when the
+        -- window hides, but its own shown flag survives and would re-cover the pane
+        -- on reopen. Hide it so a reopen lands on the callout list.
+        if UI.namesPanel then UI.namesPanel:Hide() end
     end)
     table.insert(UISpecialFrames, "PugHelperFrame")   -- closes with Escape
 
@@ -735,6 +745,9 @@ function UI.BuildUI()
     watcher:RegisterEvent("GROUP_ROSTER_UPDATE")
     watcher:RegisterEvent("PARTY_LEADER_CHANGED")
     watcher:SetScript("OnEvent", function()
+        -- Skip the recompute while the window is closed (UI.Open refreshes on show),
+        -- so roster churn on a busy raid doesn't do pointless work for a hidden UI.
+        if not (UI.frame and UI.frame:IsShown()) then return end
         UI.UpdateChannelButton()
         if UI.RefreshNamesPanel then UI.RefreshNamesPanel() end
     end)
@@ -837,6 +850,9 @@ function UI.Open()
         -- which re-shows every tab and the "Search..." hint).
         if UI.searchBox then UI.searchBox:SetText("") end
         UI.SelectInstance(ns.Content.ResolveSelectedInstance())
+        -- Catch up the channel button on any group/leader change that happened
+        -- while the window was closed (the watcher skips work when hidden).
+        UI.UpdateChannelButton()
     end
 end
 

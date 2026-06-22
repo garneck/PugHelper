@@ -177,6 +177,26 @@ function Config.CustomRoles()
     return cr
 end
 
+-- Drop per-instance customization (content overrides, custom roles, hidden sets)
+-- for any instanceId where `isLive(id)` is falsy. The POLICY (which ids still
+-- exist) lives in Content; this owns only the saved-vars iteration so PugHelperDB
+-- stays Config's alone, mirroring Config.PruneNames.
+function Config.PruneCustomization(isLive)
+    if not PugHelperDB then return end
+    local function sweep(tbl)
+        if type(tbl) ~= "table" then return end
+        for id in pairs(tbl) do
+            if not isLive(id) then tbl[id] = nil end
+        end
+    end
+    sweep(PugHelperDB.custom)
+    local cr = PugHelperDB.customRoles
+    if type(cr) == "table" then
+        sweep(cr.byInstance)
+        sweep(cr.hidden)
+    end
+end
+
 -- ---------------------------------------------------------------------------
 --  Minimap button (angle around the ring + show/hide)
 -- ---------------------------------------------------------------------------

@@ -136,8 +136,15 @@ function UI.RebuildRoleRows()
     -- Name the current tab so the "This tab" scope is unambiguous (the panel
     -- covers the tab list while it's open).
     if panel.addHeader then
-        local tab = ns.Content.InstanceName(selId, "this tab")
-        panel.addHeader:SetText("Add a custom role  " .. T.colorize(T.color.faint, "(This tab = " .. tab .. ")"))
+        -- A pending add-role error survives a rebuild (a background roster update
+        -- triggers RebuildRoleRows and would otherwise wipe the error before the
+        -- user reads it). Cleared on a successful add or when the input changes.
+        if panel.addError then
+            panel.addHeader:SetText(T.colorize(T.color.loud, panel.addError))
+        else
+            local tab = ns.Content.InstanceName(selId, "this tab")
+            panel.addHeader:SetText("Add a custom role  " .. T.colorize(T.color.faint, "(This tab = " .. tab .. ")"))
+        end
     end
 
     local width = panel.scrollChild:GetWidth()
@@ -165,7 +172,8 @@ function UI.RebuildRoleRows()
         -- reddish when the assigned player isn't in the current group (only while
         -- actually grouped, so pre-invite name entry isn't flagged as wrong).
         UIDropDownMenu_SetText(row.dd, assigned ~= "" and assigned or T.colorize(T.color.faint, "(not set)"))
-        local labelText = T.colorize(T.color.title, "{" .. role.key .. "}") .. " " .. (role.label or role.key)
+        -- role.key is %W-stripped (no '|'); escape the free-form label for display.
+        local labelText = T.colorize(T.color.title, "{" .. role.key .. "}") .. " " .. ns.util.escapePipes(role.label or role.key)
         if assigned == "" then
             row.label:SetTextColor(T.rgb(T.color.unset))
         elseif rosterN > 1 and not roster[assigned] then
@@ -204,7 +212,7 @@ end
 function UI.DeleteRoleRow(scope, token, label)
     local selId    = ns.Config.SelectedInstance()
     local namePart = (label and label ~= "" and label:upper() ~= token:upper())
-        and (" (" .. label .. ")") or ""
+        and (" (" .. ns.util.escapePipes(label) .. ")") or ""
     local who = T.colorize(T.color.title, "{" .. token .. "}") .. namePart
 
     local msg, acceptText, action
@@ -250,6 +258,16 @@ local function BuildAddRow(panel)
     -- Tab cycles between the Name and Token fields for quick entry.
     nameBox:SetScript("OnTabPressed", function() tokenBox:SetFocus() end)
     tokenBox:SetScript("OnTabPressed", function() nameBox:SetFocus() end)
+    -- Typing into either field clears a stale add-role error (shown in the header)
+    -- and restores the normal caption; guarded so normal typing is cheap.
+    local function clearAddError()
+        if panel.addError then
+            panel.addError = nil
+            UI.RebuildRoleRows()
+        end
+    end
+    nameBox:SetScript("OnTextChanged", clearAddError)
+    tokenBox:SetScript("OnTextChanged", clearAddError)
 
     -- Scope toggle: a custom role is either Global (every tab) or This tab only.
     -- Defaults to This tab, the clutter-reducing case the user asked for.
@@ -279,13 +297,17 @@ local function BuildAddRow(panel)
         local instanceId = (panel.addScope == "instance") and ns.Config.SelectedInstance() or nil
         local key, reason = ns.Content.AddCustomRole(instanceId, nameBox:GetText(), tokenBox:GetText())
         if key then
+            panel.addError = nil
             nameBox:SetText("")
             tokenBox:SetText("")
             nameBox:ClearFocus()
             tokenBox:ClearFocus()
             UI.RebuildRoleRows()
-        elseif panel.addHeader then
-            panel.addHeader:SetText(T.colorize(T.color.loud, reason or "Could not add role."))
+        else
+            -- Stash the reason so a background rebuild (roster update) re-renders it
+            -- via RebuildRoleRows instead of wiping it with the static caption.
+            panel.addError = reason or "Could not add role."
+            UI.RebuildRoleRows()
         end
     end
 end
@@ -402,6 +424,7 @@ function UI.ToggleNames()
     if not panel then return end
     if panel:IsShown() then
         panel:Hide()
+        UI.Refresh(true)   -- match the X/Done close paths so unset-token cues update
     else
         panel:Show()
         UI.RebuildRoleRows()

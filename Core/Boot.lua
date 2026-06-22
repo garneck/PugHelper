@@ -20,6 +20,7 @@ loader:SetScript("OnEvent", function(self, event, name)
     ns.Config.SetSelectedInstance(ns.Content.ResolveSelectedInstance())
 
     ns.Content.Validate()
+    ns.Content.PruneCustomization()   -- reap dead per-instance data (renamed/removed content)
     ns.Content.PruneNames()
 
     -- Build the minimap launcher now (not lazily with the window) so it's visible

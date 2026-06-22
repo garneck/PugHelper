@@ -197,6 +197,20 @@ local function tokenTaken(instanceId, token)
     return false
 end
 
+-- True if ANY per-instance custom-role list already uses this token. A GLOBAL add
+-- is checked against this in addition to tokenTaken, because EffectiveRoles(nil)
+-- can't see per-instance roles - without it a global role would silently shadow an
+-- existing per-tab role of the same token (dedup in EffectiveRoles drops it).
+local function tokenUsedByAnyInstance(token)
+    local up = token:upper()
+    for _, list in pairs(Config.CustomRoles().byInstance) do
+        for _, role in ipairs(validRoleList(list)) do
+            if tostring(role.key):upper() == up then return true end
+        end
+    end
+    return false
+end
+
 -- Add a user-defined role. instanceId == nil => global (every tab); otherwise it
 -- only appears on that raid's tab. The token is sanitized to letters/numbers and
 -- uppercased so it matches the {%w+} substitution pattern. Returns the stored key
@@ -210,6 +224,12 @@ function Content.AddCustomRole(instanceId, name, token)
     end
     if tokenTaken(instanceId, token) then
         return nil, "Token {" .. token .. "} is already used here."
+    end
+    -- A global add can't see per-instance roles via EffectiveRoles(nil), so check
+    -- them explicitly; otherwise the global role would silently hide an existing
+    -- per-tab role that shares the token (and steal its saved name).
+    if not instanceId and tokenUsedByAnyInstance(token) then
+        return nil, "Token {" .. token .. "} is already a per-tab role - remove it there first."
     end
     name = util.trim(name)
     if name == "" then name = token end
@@ -231,7 +251,10 @@ end
 -- empty tables. Any saved player name is left to PruneNames to clean up.
 function Content.RemoveCustomRole(instanceId, key)
     local store = Config.CustomRoles()
-    local list  = instanceId and store.byInstance[instanceId] or store.global
+    -- Explicit branch (NOT `a and b or c`): for an instanceId with no list this
+    -- must be a no-op, not fall through to the global list and remove from there.
+    local list
+    if instanceId then list = store.byInstance[instanceId] else list = store.global end
     if type(list) ~= "table" then return end
     local up = tostring(key):upper()
     for i = #list, 1, -1 do
@@ -317,6 +340,17 @@ local function customSections(instanceId)
     return nil
 end
 
+-- The instance's current section list WITHOUT forking: the user-owned copy if one
+-- exists, else the registered defaults (read-only). Used by the mutators below to
+-- answer "did this actually change?" before calling materialize, so a no-op edit
+-- or drop-in-place drag doesn't fork the instance and falsely mark it customized.
+local function sourceSections(instanceId)
+    local s = customSections(instanceId)
+    if s then return s end
+    local def = Content.byId[instanceId]
+    return def and def.sections or nil
+end
+
 -- Build the effective instance to display/send. If the user has customized this
 -- instance, its sections are a fully user-owned copy (fork-on-edit, see the
 -- mutators below); otherwise they are a copy of the registered defaults. Either
@@ -371,10 +405,18 @@ end
 
 -- Lines (addressed by section index + line index) ----------------------------
 function Content.SetLine(instanceId, sectionIndex, lineIndex, text)
+    text = util.oneLine(text)
+    -- Compare against the current value WITHOUT forking, so re-saving identical
+    -- text (a no-op edit) doesn't materialize a redundant custom copy and falsely
+    -- flip the tab to "(customized)". Only an actual change calls getSection.
+    local src = sourceSections(instanceId)
+    local cur = src and src[sectionIndex]
+    local existing = cur and util.asList(cur.lines)[lineIndex]
+    if existing == nil then return end       -- only edit a line that exists
+    if existing == text then return end      -- unchanged: do not fork
     local section = getSection(instanceId, sectionIndex)
-    if not section then return end
-    if section.lines[lineIndex] ~= nil then
-        section.lines[lineIndex] = util.oneLine(text)
+    if section then
+        section.lines[lineIndex] = text
     end
 end
 
@@ -396,13 +438,17 @@ end
 -- `insertBefore` (1..#lines+1; #lines+1 = "to the end"). Mirrors MoveSection.
 -- No-op if the move wouldn't change order.
 function Content.MoveLine(instanceId, sectionIndex, fromIndex, insertBefore)
-    local section = getSection(instanceId, sectionIndex)
-    if not section then return end
-    local lines = section.lines
-    local n = #lines
+    -- Validate + no-op check against the un-forked source first, so a drop-in-place
+    -- line drag doesn't materialize a custom copy identical to the defaults.
+    local src = sourceSections(instanceId)
+    local cur = src and src[sectionIndex]
+    local n = cur and #util.asList(cur.lines) or 0
     if fromIndex < 1 or fromIndex > n then return end
     insertBefore = math.max(1, math.min(insertBefore or (n + 1), n + 1))
     if insertBefore == fromIndex or insertBefore == fromIndex + 1 then return end
+    local section = getSection(instanceId, sectionIndex)
+    if not section then return end
+    local lines = section.lines
     local item = table.remove(lines, fromIndex)
     if insertBefore > fromIndex then insertBefore = insertBefore - 1 end
     table.insert(lines, insertBefore, item)
@@ -421,6 +467,11 @@ end
 function Content.SetSectionTitle(instanceId, sectionIndex, title)
     title = util.oneLine(title)
     if title == "" then return end
+    -- No-op rename (same title) must not fork the instance; check the source first.
+    local src = sourceSections(instanceId)
+    local cur = src and src[sectionIndex]
+    if not cur then return end
+    if cur.title == title then return end
     local section = getSection(instanceId, sectionIndex)
     if section then section.title = title end
 end
@@ -440,11 +491,14 @@ end
 -- (a slot in 1..#sections+1; #sections+1 means "to the end"). No-op if the move
 -- wouldn't change order.
 function Content.MoveSection(instanceId, fromIndex, insertBefore)
-    local sections = materialize(instanceId)
-    local n = #sections
+    -- Validate + no-op check against the un-forked source first, so a drop-in-place
+    -- section drag doesn't materialize a custom copy identical to the defaults.
+    local src = sourceSections(instanceId)
+    local n = src and #src or 0
     if fromIndex < 1 or fromIndex > n then return end
     insertBefore = math.max(1, math.min(insertBefore or (n + 1), n + 1))
     if insertBefore == fromIndex or insertBefore == fromIndex + 1 then return end
+    local sections = materialize(instanceId)
     local item = table.remove(sections, fromIndex)
     if insertBefore > fromIndex then insertBefore = insertBefore - 1 end
     table.insert(sections, insertBefore, item)
@@ -504,6 +558,15 @@ function Content.Validate()
     end
 end
 
+-- Drop saved customization (content overrides, custom roles, hidden sets) whose
+-- instanceId no longer resolves to a registered instance - e.g. a raid file
+-- removed/renamed across addon versions. Without this, PugHelperDB accumulates
+-- dead per-instance data forever. Run from Boot BEFORE PruneNames so name pruning
+-- sees the already-reaped role store. The saved-vars iteration lives in Config.
+function Content.PruneCustomization()
+    Config.PruneCustomization(function(id) return Content.Get(id) ~= nil end)
+end
+
 -- Drop saved names whose token is neither a role key nor used by any (effective)
 -- callout line, so PugHelperDB.names doesn't accumulate leftovers as content
 -- changes. Case-insensitive; leaves custom-but-still-used tokens alone.
@@ -518,8 +581,11 @@ function Content.PruneNames()
     -- built-ins, global custom roles, and every instance's custom roles.
     markLive(Content.ValidRoles())
     markLive(Content.GlobalRoles())
-    for _, list in pairs(Config.CustomRoles().byInstance) do
-        markLive(validRoleList(list))
+    for id, list in pairs(Config.CustomRoles().byInstance) do
+        -- Skip roles for instances that no longer exist, so an orphaned per-tab
+        -- role can't pin its saved name alive forever (PruneCustomization also
+        -- reaps these, but gate here too so ordering can't reintroduce the leak).
+        if Content.Get(id) then markLive(validRoleList(list)) end
     end
     for _, cat in ipairs(Content.categories) do
         for _, inst in ipairs(Content.Instances(cat.id)) do

@@ -75,9 +75,10 @@ local function BuildPopup()
         if not p.showPreview then return end
         -- Cap the previewed text so a very long callout can't grow the preview down
         -- over the Save/Cancel buttons; the edit box itself keeps the full text.
-        local raw = self:GetText()
-        if #raw > 160 then raw = raw:sub(1, 160) .. "..." end
-        local resolved = ns.Chat.Substitute(raw)
+        local raw = ns.util.truncate(self:GetText(), 160)
+        -- Escape '|' before the token-tint so a typed pipe (or pasted |c..|r) can't
+        -- render as a real colour/escape in the preview.
+        local resolved = ns.util.escapePipes(ns.Chat.Substitute(raw))
         resolved = resolved:gsub("{(%w+)}", T.colorize(T.color.unset, "{%1}"))
         previewText:SetText(resolved)
     end)
@@ -150,8 +151,8 @@ end
 -- Right-click delete is confirmed first so a stray click can't drop a callout.
 -- The line's text (trimmed for the dialog) is shown so you delete the right one.
 function UI.DeleteLine(instanceId, sectionIndex, lineIndex, preview)
-    preview = tostring(preview or "")
-    if #preview > 120 then preview = preview:sub(1, 120) .. "..." end
+    -- Truncate UTF-8-safe, then escape '|' so the deleted line is shown verbatim.
+    preview = ns.util.escapePipes(ns.util.truncate(preview, 120))
     local msg = "Delete this line?"
     if preview ~= "" then msg = msg .. "\n\n" .. T.colorize(T.color.title, preview) end
     UI.Confirm(msg, function()
@@ -176,7 +177,8 @@ end
 
 function UI.DeleteSection(instanceId, sectionIndex, title)
     title = tostring(title or "")
-    local what = (title ~= "") and ('the section "' .. title .. '"') or "this section"
+    local shown = ns.util.escapePipes(title)   -- escape '|' for the confirm dialog
+    local what = (title ~= "") and ('the section "' .. shown .. '"') or "this section"
     UI.Confirm("Delete " .. what .. " and all of its lines?", function()
         ns.Content.DeleteSection(instanceId, sectionIndex)
         UI.Refresh()

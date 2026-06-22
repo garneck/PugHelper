@@ -53,6 +53,29 @@ function util.oneLine(s)
     return util.trim(s)
 end
 
+-- Double any literal '|' so a user-entered string renders verbatim in a
+-- FontString, whose parser otherwise eats '|' as a colour/texture/link escape
+-- lead (|c, |T, |H). DISPLAY-ONLY: never apply this to text sent to chat.
+function util.escapePipes(s)
+    return (tostring(s or ""):gsub("|", "||"))
+end
+
+-- Truncate to at most maxBytes bytes, appending "..." when it had to cut. UTF-8
+-- aware: backs the cut off a trailing continuation byte (0x80-0xBF) so a
+-- multibyte glyph is never split (mirrors the hard-cut back-off in wrap). For
+-- previews/labels, where # and string.sub are byte-based on this client.
+function util.truncate(s, maxBytes)
+    s = tostring(s or "")
+    if #s <= maxBytes then return s end
+    local cut = maxBytes
+    while cut > 1 do
+        local b = s:byte(cut + 1)
+        if not b or b < 128 or b >= 192 then break end
+        cut = cut - 1
+    end
+    return s:sub(1, cut) .. "..."
+end
+
 -- Derive a stable, lowercase id from a display name: alphanumeric runs kept,
 -- everything else collapsed to single dashes, ends trimmed.
 --   "Karazhan"               -> "karazhan"
