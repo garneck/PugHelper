@@ -103,3 +103,11 @@ The addon is split into focused modules that share one **private namespace**, `n
 ## Verifying changes
 
 There is no automated test framework. Verify in-game: save the files in this AddOns folder, then `/reload` (or relog) in WoW and exercise the change manually via `/pug` (including the **Edit** button for callout customization). Optionally lint with luacheck (config in `.luacheckrc`): `& "C:\Users\garneck\luacheck\luacheck.cmd" .`.
+
+## Releasing (CurseForge)
+
+Releases are automated by the **BigWigs packager** (`.github/workflows/release.yml`) — pushing a git tag `vX.Y` builds the zip and uploads it to CurseForge (project `1585189`, tagged for the BCC flavor since Interface `20505`) and creates a matching GitHub Release. `.pkgmeta` names the package `PugHelper` and excludes dev-only files. The `CF_API_KEY` repo secret holds the CurseForge upload token.
+
+- **Version:** `## Version:` in the `.toc` is `@project-version@`; the packager substitutes the git tag at build time (it shows literally as `@project-version@` when running straight from this repo — that's expected, nothing reads it at runtime). So the release version *is* the tag.
+- **Changelog:** update `CHANGELOG.md` before tagging — the packager attaches it as the release notes. **Keep entries short and to the point:** one `## vX.Y` heading and a handful of plain bullets describing user-facing changes. No marketing copy, no internal/refactor noise.
+- **To release:** edit `CHANGELOG.md`, commit, then `git tag vX.Y && git push origin vX.Y`. Watch the run under the repo's **Actions** tab. The *first* file on a new project sits in CurseForge moderation before going public; later releases publish instantly.

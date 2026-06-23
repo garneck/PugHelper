@@ -2,7 +2,7 @@
 ## Title: PUG Helper
 ## Notes: Quick raid callouts and assignments for PUG raid leaders (TBC)
 ## Author: garneck
-## Version: 2.0
+## Version: @project-version@
 ## SavedVariables: PugHelperDB
 ## IconTexture: Interface\Icons\INV_Misc_GroupLooking
 ## X-Curse-Project-ID: 1585189

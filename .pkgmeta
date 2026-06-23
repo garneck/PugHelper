@@ -5,6 +5,12 @@ package-as: PugHelper
 # This addon has no embedded libraries, so don't try to build a -nolib zip.
 enable-nolib-creation: no
 
+# Use our hand-written CHANGELOG.md as the release notes (instead of an
+# auto-generated git-log changelog). Keep entries short — see CLAUDE.md.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
 # Dev-only files that must NOT ship to players.
 ignore:
   - .github
