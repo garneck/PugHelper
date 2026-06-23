@@ -1,0 +1,17 @@
+# BigWigs packager config — https://github.com/BigWigsMods/packager
+# The published addon folder is named "PugHelper" (must match the .toc base name).
+package-as: PugHelper
+
+# This addon has no embedded libraries, so don't try to build a -nolib zip.
+enable-nolib-creation: no
+
+# Dev-only files that must NOT ship to players.
+ignore:
+  - .github
+  - .claude
+  - memory
+  - CLAUDE.md
+  - CLAUDE.local.md
+  - .luacheckrc
+  - .gitattributes
+  - .gitignore

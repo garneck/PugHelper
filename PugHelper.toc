@@ -5,6 +5,7 @@
 ## Version: 2.0
 ## SavedVariables: PugHelperDB
 ## IconTexture: Interface\Icons\INV_Misc_GroupLooking
+## X-Curse-Project-ID: 1585189
 
 # Engine (load order matters: each layer depends on the ones above it)
 Core\Namespace.lua

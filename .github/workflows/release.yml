@@ -1,0 +1,28 @@
+name: Package and release
+
+# Runs whenever you push a tag, e.g.:  git tag v2.1 && git push origin v2.1
+on:
+  push:
+    tags:
+      - '**'
+
+permissions:
+  contents: write   # lets the packager attach the zip to a GitHub Release
+
+env:
+  # Add this secret in: repo Settings -> Secrets and variables -> Actions
+  CF_API_KEY: ${{ secrets.CF_API_KEY }}
+  # Provided automatically by GitHub; enables the GitHub Release upload.
+  GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so the changelog/tag detection works
+
+      - name: Package and release
+        uses: BigWigsMods/packager@v2
