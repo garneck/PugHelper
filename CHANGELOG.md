@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.1
+Maintenance release — no in-game changes; packaging and release-process improvements only.
+
 ## v2.0
 First CurseForge release.
 - Draggable window of per-tab raid and heroic boss/trash callouts.
